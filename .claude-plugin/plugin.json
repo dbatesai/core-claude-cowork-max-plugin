@@ -1,0 +1,20 @@
+{
+  "name": "core-max",
+  "version": "1.0.0",
+  "description": "CORE: Cowork-native delivery intelligence with adversarial reasoning, Live Artifact dashboards, connector integration, and scheduled sessions",
+  "author": {
+    "name": "David Bates",
+    "email": "david_bates@mac.com",
+    "url": "https://github.com/dbatesai"
+  },
+  "homepage": "https://github.com/dbatesai/core-skill",
+  "repository": "https://github.com/dbatesai/core-claude-cowork-max-plugin",
+  "license": "MIT",
+  "keywords": [
+    "delivery-intelligence",
+    "adversarial-reasoning",
+    "swarm",
+    "cowork-native",
+    "non-technical"
+  ]
+}
