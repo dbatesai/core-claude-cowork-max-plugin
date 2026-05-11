@@ -1,0 +1,232 @@
+name: Release CI
+
+# Runs on:
+#   - Every push to main (validation only)
+#   - Every push to a v* tag (validation + release artifact creation)
+#
+# All-or-none: all validation jobs must pass before any release artifact is created.
+# Per-asset gates per §12.2 of the max plugin spec.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # --------------------------------------------------------------------------
+  # Job 1: Build and test MCP server
+  # --------------------------------------------------------------------------
+  mcp-server:
+    name: MCP server — build + test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install build tools and FastMCP
+        run: |
+          pip install build hatch pytest pytest-asyncio "fastmcp>=2.0,<3"
+
+      - name: Build wheel
+        run: |
+          cd mcp-server
+          python -m build
+
+      - name: Validate dependency closure
+        run: |
+          cd mcp-server
+          pip install --target /tmp/mcp-install-check dist/*.whl
+
+      - name: Smoke import
+        run: |
+          cd mcp-server
+          pip install -e .
+          python -c "import core_mcp.server; print('Smoke import OK')"
+
+      - name: Run tests
+        run: |
+          cd mcp-server
+          if [ -d tests ]; then
+            pytest tests/ -v --tb=short
+          else
+            echo "No tests directory found — skipping (add mcp-server/tests/ to enable)"
+          fi
+
+  # --------------------------------------------------------------------------
+  # Job 2: Validate HTML live artifacts
+  # --------------------------------------------------------------------------
+  html-artifacts:
+    name: Live artifacts — HTML validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install html-validate
+        run: npm install -g html-validate
+
+      - name: Validate HTML files
+        run: |
+          for f in live-artifacts/*.html; do
+            echo "Validating $f ..."
+            html-validate "$f"
+          done
+
+      - name: Check inline script syntax
+        run: |
+          for f in live-artifacts/*.html; do
+            python3 scripts/ci/check-inline-scripts.py "$f"
+          done
+
+      - name: Verify CDN SHA256 pins
+        run: python3 scripts/ci/verify-cdn-pins.py live-artifacts/cdn-checksums.txt
+
+  # --------------------------------------------------------------------------
+  # Job 3: Validate SVG workshop assets
+  # --------------------------------------------------------------------------
+  svg-assets:
+    name: Workshop SVGs — security lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install svglint
+        run: npm install -g svglint
+
+      - name: Lint SVG files
+        run: |
+          for f in live-artifacts/workshop-assets/*.svg; do
+            echo "Linting $f ..."
+            svglint "$f"
+          done
+
+      - name: Check for external refs and embedded scripts
+        run: python3 scripts/ci/check-svg-security.py live-artifacts/workshop-assets/
+
+  # --------------------------------------------------------------------------
+  # Job 4: Validate project templates
+  # --------------------------------------------------------------------------
+  templates:
+    name: Project templates — schema validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate template schema
+        run: python3 scripts/ci/validate-templates.py templates/project-types/
+
+  # --------------------------------------------------------------------------
+  # Job 5: Validate connector docs
+  # --------------------------------------------------------------------------
+  connectors:
+    name: Connector docs — validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate connector docs
+        run: python3 scripts/ci/validate-connectors.py connectors/
+
+  # --------------------------------------------------------------------------
+  # Job 6: Validate plugin manifests
+  # --------------------------------------------------------------------------
+  manifests:
+    name: Plugin manifests — schema validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate plugin.json and hooks.json
+        run: python3 scripts/ci/validate-manifests.py
+
+  # --------------------------------------------------------------------------
+  # Job 7: Verify bundled skill checksums
+  # --------------------------------------------------------------------------
+  skill-checksums:
+    name: Bundled skills — checksum verification
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify skills/CHECKSUMS.txt
+        run: |
+          if [ ! -f skills/CHECKSUMS.txt ]; then
+            echo "ERROR: skills/CHECKSUMS.txt not found. Run scripts/refresh-bundled-skills.sh + commit."
+            exit 1
+          fi
+          find skills -type f -not -name 'CHECKSUMS.txt' -print0 \
+            | sort -z | xargs -0 shasum -a 256 > /tmp/ci-checksums.txt
+          if ! diff /tmp/ci-checksums.txt skills/CHECKSUMS.txt; then
+            echo "ERROR: bundled skills/ drift from committed checksums."
+            echo "Run scripts/refresh-bundled-skills.sh + commit + retry."
+            exit 1
+          fi
+          echo "Skill checksums OK"
+
+  # --------------------------------------------------------------------------
+  # Release: create zip artifact and GitHub release
+  # Only on v* tag; requires all validation jobs to pass
+  # --------------------------------------------------------------------------
+  release:
+    name: Create release artifact
+    runs-on: macos-latest
+    needs:
+      - mcp-server
+      - html-artifacts
+      - svg-assets
+      - templates
+      - connectors
+      - manifests
+      - skill-checksums
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Derive version from tag
+        id: version
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG_NAME#v}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "ARTIFACT=core-claude-cowork-max-plugin-v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Build release zip
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          ARTIFACT: ${{ steps.version.outputs.ARTIFACT }}
+        run: |
+          mkdir -p "dist/${ARTIFACT}"
+          rsync -a \
+            --exclude='.git' --exclude='dist/' --exclude='*.egg-info' \
+            --exclude='__pycache__' --exclude='*.pyc' --exclude='.github' \
+            . "dist/${ARTIFACT}/"
+          cd dist
+          zip -r "${ARTIFACT}.zip" "${ARTIFACT}/"
+          shasum -a 256 "${ARTIFACT}.zip" > "${ARTIFACT}.SHA256SUMS"
+          echo "=== Release artifact ==="
+          ls -lh "${ARTIFACT}.zip" "${ARTIFACT}.SHA256SUMS"
+
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          ARTIFACT: ${{ steps.version.outputs.ARTIFACT }}
+        with:
+          files: |
+            dist/${{ steps.version.outputs.ARTIFACT }}.zip
+            dist/${{ steps.version.outputs.ARTIFACT }}.SHA256SUMS
+          generate_release_notes: false

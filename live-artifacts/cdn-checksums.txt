@@ -1,0 +1,24 @@
+# CDN URL SHA256 allowlist for live artifact CDN pins.
+# Each non-comment line: <sha256>  <url>
+#
+# CI (release.yml html-artifacts job) fetches each URL at release time and
+# refuses to publish if the SHA256 has changed from what is listed here.
+# Update this file (and the CDN URL pins in the HTML files) whenever a CDN
+# version is intentionally upgraded.
+#
+# Format: shasum -a 256 output followed by two spaces and the URL.
+#
+# NOTE: These are PLACEHOLDER hashes. Update with actual values when the
+# live artifact HTML files (Tier 6) are implemented and the CDN URLs are
+# confirmed. Run the following to get actual hashes:
+#   curl -sL <url> | shasum -a 256
+#
+# Chart.js 4.x (used by trust-strip-dashboard.html + swarm-live-view.html)
+PLACEHOLDER_UPDATE_AFTER_TIER_6  https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js
+#
+# Grid.js 6.x (used by trust-strip-dashboard.html)
+PLACEHOLDER_UPDATE_AFTER_TIER_6  https://cdn.jsdelivr.net/npm/gridjs@6.1.1/dist/gridjs.umd.js
+PLACEHOLDER_UPDATE_AFTER_TIER_6  https://cdn.jsdelivr.net/npm/gridjs@6.1.1/dist/theme/mermaid.min.css
+#
+# Mermaid 10.x (used by swarm-live-view.html)
+PLACEHOLDER_UPDATE_AFTER_TIER_6  https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js
