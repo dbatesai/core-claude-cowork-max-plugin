@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "core-mcp"
+version = "1.0.0"
+description = "CORE MCP server — read-only tools for the CORE Cowork max plugin Live Artifact dashboard"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "David Bates", email = "david_bates@mac.com" }
+]
+dependencies = [
+  "fastmcp>=2.0,<3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["core_mcp"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
