@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 // CORE MCP server — zero-dependency Node.js implementation
 // JSON-RPC 2.0 over stdio per the MCP spec (newline-delimited messages)
-// 8 read-only tools. Reads from ~/.core/ and project folders. Never writes.
+// 8 read-only tools + 9 write tools + read_workspace_at_path.
+// Reads from ~/.core/ and project folders. Writes are restricted to CORE_DATA_DIR.
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, appendFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, basename } from "node:path";
+import { join, basename, resolve, dirname } from "node:path";
 import readline from "node:readline";
 
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_NAME = "core";
-const SERVER_VERSION = "1.0.0";
+const SERVER_VERSION = "1.1.0";
 const CORE_DATA_DIR = process.env.CORE_DATA_DIR || join(homedir(), ".core");
 
 // --- JSON-RPC plumbing (stderr-only logging; stdout reserved for responses) ---
@@ -68,6 +69,32 @@ function extractSection(markdown, sectionName) {
   const re = new RegExp(`^## ${escaped}\\s*\\n([\\s\\S]*?)(?=^## |$)`, "m");
   const m = markdown.match(re);
   return m ? m[1].trim() : "";
+}
+
+// --- Write helpers ---
+
+function ensureDir(dirPath) {
+  if (!existsSync(dirPath)) mkdirSync(dirPath, { recursive: true });
+}
+
+function safeWritePath(targetPath) {
+  const resolved = resolve(targetPath);
+  const coreDir = resolve(CORE_DATA_DIR);
+  if (resolved !== coreDir && !resolved.startsWith(coreDir + "/")) {
+    throw new Error(`Write blocked: '${resolved}' is outside CORE_DATA_DIR '${coreDir}'`);
+  }
+  return resolved;
+}
+
+function auditLog(operation, targetPath, detail) {
+  const ts = new Date().toISOString();
+  const entry = `- ${ts} | ${operation} | ${targetPath}${detail ? " | " + detail : ""}\n`;
+  try {
+    const logPath = join(CORE_DATA_DIR, "mcp-write-log.md");
+    appendFileSync(logPath, entry, "utf-8");
+  } catch (e) {
+    log(`audit-log write failed: ${e.message}`);
+  }
 }
 
 function listSessionLogs(wsPath, sessionDate) {
@@ -371,7 +398,24 @@ function lastSwarmDate(wsPath) {
 
 function tool_read_workshop_state(args) {
   const wid = (args && args.workspace_id) || "";
-  const wsPath = resolveWorkspacePath(wid);
+  const projectPath = (args && args.project_path) || null;
+
+  // If a project_path is provided, resolve the workspace from the filesystem directly.
+  // This is required in Cowork where the session is folder-scoped and the workspace
+  // may not yet be registered in index.json (F1 root cause).
+  let wsPath;
+  let resolvedWid = wid;
+  if (projectPath) {
+    const resolved = resolve(projectPath);
+    if (existsSync(resolved)) {
+      wsPath = resolved;
+      // Try to read workspace_id from the pointer file
+      const pointer = readJSON(join(resolved, "workspace.json"));
+      if (pointer && pointer.workspace_id) resolvedWid = pointer.workspace_id;
+    }
+  }
+  if (!wsPath) wsPath = resolveWorkspacePath(resolvedWid);
+
   const dm = tool_read_dm_profile();
   const vibe = tool_read_vibe_log({ limit: 1 });
 
@@ -399,11 +443,183 @@ function tool_read_workshop_state(args) {
     project_name: projectName,
     project_state_summary: stateSummary,
     active_risk_count: activeRiskCount,
-    session_age_days: sessionAgeDays(wid),
+    session_age_days: sessionAgeDays(resolvedWid),
     last_swarm_date: wsPath ? lastSwarmDate(wsPath) : null,
     vibe_label: vibe.most_recent_vibe ?? null,
     workspace_count: workspaceCount,
     workspace_path: wsPath ?? null,
+  };
+}
+
+// --- Write tool implementations ---
+
+function tool_register_workspace(args) {
+  const { workspace_id, name, path: wsPath, last_active, delivery_risk } = args || {};
+  if (!workspace_id) return { success: false, error: "workspace_id required" };
+  const indexPath = safeWritePath(join(CORE_DATA_DIR, "index.json"));
+  let index = [];
+  if (existsSync(indexPath)) {
+    try { index = JSON.parse(readFileSync(indexPath, "utf-8")); } catch (_) {}
+  }
+  if (!Array.isArray(index)) index = [];
+  const existing = index.findIndex((w) => w?.workspace_id === workspace_id);
+  const entry = {
+    workspace_id,
+    name: name || workspace_id,
+    path: wsPath || "",
+    last_active: last_active || new Date().toISOString(),
+    ...(delivery_risk ? { delivery_risk } : {}),
+  };
+  if (existing >= 0) {
+    index[existing] = { ...index[existing], ...entry };
+    auditLog("register_workspace(update)", indexPath, workspace_id);
+  } else {
+    index.push(entry);
+    auditLog("register_workspace(create)", indexPath, workspace_id);
+  }
+  writeFileSync(indexPath, JSON.stringify(index, null, 4), "utf-8");
+  return { success: true, workspace_id, created: existing < 0, path: indexPath };
+}
+
+function tool_unregister_workspace(args) {
+  const { workspace_id } = args || {};
+  if (!workspace_id) return { success: false, error: "workspace_id required" };
+  const indexPath = safeWritePath(join(CORE_DATA_DIR, "index.json"));
+  if (!existsSync(indexPath)) return { success: false, error: "index.json not found" };
+  let index;
+  try { index = JSON.parse(readFileSync(indexPath, "utf-8")); } catch (e) {
+    return { success: false, error: "index.json parse error: " + e.message };
+  }
+  if (!Array.isArray(index)) return { success: false, error: "index.json is not an array" };
+  const before = index.length;
+  index = index.filter((w) => w?.workspace_id !== workspace_id);
+  if (index.length === before) return { success: false, error: `workspace_id '${workspace_id}' not found` };
+  writeFileSync(indexPath, JSON.stringify(index, null, 4), "utf-8");
+  auditLog("unregister_workspace", indexPath, workspace_id);
+  return { success: true, workspace_id, removed: true, remaining: index.length };
+}
+
+function tool_update_workspace_last_active(args) {
+  const { workspace_id, timestamp } = args || {};
+  if (!workspace_id) return { success: false, error: "workspace_id required" };
+  const indexPath = safeWritePath(join(CORE_DATA_DIR, "index.json"));
+  if (!existsSync(indexPath)) return { success: false, error: "index.json not found" };
+  let index;
+  try { index = JSON.parse(readFileSync(indexPath, "utf-8")); } catch (e) {
+    return { success: false, error: "index.json parse error: " + e.message };
+  }
+  if (!Array.isArray(index)) return { success: false, error: "index.json is not an array" };
+  const ws = index.find((w) => w?.workspace_id === workspace_id);
+  if (!ws) return { success: false, error: `workspace_id '${workspace_id}' not found` };
+  const ts = timestamp || new Date().toISOString();
+  ws.last_active = ts;
+  writeFileSync(indexPath, JSON.stringify(index, null, 4), "utf-8");
+  auditLog("update_workspace_last_active", indexPath, `${workspace_id} → ${ts}`);
+  return { success: true, workspace_id, last_active: ts };
+}
+
+function tool_write_workspace_manifest(args) {
+  const { workspace_id, manifest } = args || {};
+  if (!workspace_id || !manifest || typeof manifest !== "object") {
+    return { success: false, error: "workspace_id and manifest object required" };
+  }
+  const wsDir = safeWritePath(join(CORE_DATA_DIR, "workspaces", workspace_id));
+  ensureDir(wsDir);
+  const manifestPath = join(wsDir, "workspace.json");
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+  auditLog("write_workspace_manifest", manifestPath, workspace_id);
+  return { success: true, workspace_id, path: manifestPath };
+}
+
+function tool_append_dm_profile_entry(args) {
+  const { section, entry } = args || {};
+  if (!section || !entry) return { success: false, error: "section and entry required" };
+  const profilePath = safeWritePath(join(CORE_DATA_DIR, "dm-profile.md"));
+  let text = existsSync(profilePath) ? (readText(profilePath) || "") : "";
+  const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const sectionRe = new RegExp(`(^## ${escaped}[\\s\\S]*?)(?=^## |$)`, "m");
+  const entryLine = `- ${entry.trim()}`;
+  if (sectionRe.test(text)) {
+    text = text.replace(sectionRe, (match) => match.trimEnd() + "\n" + entryLine + "\n\n");
+  } else {
+    text = text.trimEnd() + `\n\n## ${section}\n\n${entryLine}\n`;
+  }
+  writeFileSync(profilePath, text, "utf-8");
+  auditLog("append_dm_profile_entry", profilePath, section);
+  return { success: true, section, entry: entryLine, path: profilePath };
+}
+
+function tool_update_dm_profile_section(args) {
+  const { section, content } = args || {};
+  if (!section || content === undefined) return { success: false, error: "section and content required" };
+  const profilePath = safeWritePath(join(CORE_DATA_DIR, "dm-profile.md"));
+  let text = existsSync(profilePath) ? (readText(profilePath) || "") : "";
+  const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const sectionRe = new RegExp(`(^## ${escaped}\\s*\\n)([\\s\\S]*?)(?=^## |$)`, "m");
+  if (sectionRe.test(text)) {
+    text = text.replace(sectionRe, `$1${content.trim()}\n\n`);
+  } else {
+    text = text.trimEnd() + `\n\n## ${section}\n\n${content.trim()}\n`;
+  }
+  writeFileSync(profilePath, text, "utf-8");
+  auditLog("update_dm_profile_section", profilePath, section);
+  return { success: true, section, path: profilePath };
+}
+
+function tool_append_vibe_log(args) {
+  const { date, label, vibe, ascii_art } = args || {};
+  if (!date || !vibe) return { success: false, error: "date and vibe required" };
+  const vibesDir = safeWritePath(join(CORE_DATA_DIR, "vibes"));
+  ensureDir(vibesDir);
+  const logPath = join(vibesDir, "vibe-log.md");
+  const header = `## ${date}${label ? " — " + label : ""}`;
+  const block = `\n${header}\n${vibe}${ascii_art ? "\n" + ascii_art : ""}\n`;
+  appendFileSync(logPath, block, "utf-8");
+  auditLog("append_vibe_log", logPath, `${date}: ${vibe.slice(0, 60)}`);
+  return { success: true, date, path: logPath };
+}
+
+function tool_write_swarm_narrative(args) {
+  const { workspace_id, content, append: doAppend } = args || {};
+  if (!workspace_id || content === undefined) {
+    return { success: false, error: "workspace_id and content required" };
+  }
+  const wsDir = safeWritePath(join(CORE_DATA_DIR, "workspaces", workspace_id));
+  ensureDir(wsDir);
+  const narrativePath = join(wsDir, "swarm-narrative.md");
+  if (doAppend && existsSync(narrativePath)) {
+    appendFileSync(narrativePath, "\n" + content, "utf-8");
+  } else {
+    writeFileSync(narrativePath, content, "utf-8");
+  }
+  auditLog("write_swarm_narrative", narrativePath, workspace_id);
+  return { success: true, workspace_id, path: narrativePath, appended: !!(doAppend) };
+}
+
+// --- Read tool: workspace at arbitrary path (read-only, no CORE_DATA_DIR restriction) ---
+
+function tool_read_workspace_at_path(args) {
+  const { path: targetPath } = args || {};
+  if (!targetPath) return { found: false, error: "path required" };
+  const resolvedPath = resolve(targetPath);
+  if (!existsSync(resolvedPath)) {
+    return { found: false, error: `path not found: ${resolvedPath}` };
+  }
+  const pointer = readJSON(join(resolvedPath, "workspace.json"));
+  const projectMd = readText(join(resolvedPath, "PROJECT.md"));
+  return {
+    found: !!(pointer || projectMd),
+    path: resolvedPath,
+    workspace_pointer: pointer,
+    workspace_id: pointer?.workspace_id ?? null,
+    project_md_content: projectMd,
+    sections: projectMd ? {
+      state: extractSection(projectMd, "State"),
+      moves: extractSection(projectMd, "Moves"),
+      decisions_and_risks: extractSection(projectMd, "Decisions & Risks"),
+      people: extractSection(projectMd, "People"),
+      notes: extractSection(projectMd, "Notes"),
+    } : null,
   };
 }
 
@@ -469,13 +685,126 @@ const TOOLS = {
     handler: tool_read_vibe_log,
   },
   read_workshop_state: {
-    description: "Aggregate state for the DM Workshop Live Artifact.",
+    description: "Aggregate state for the DM Workshop Live Artifact. Pass project_path (absolute path to the Cowork project folder) to resolve the correct workspace in Cowork sessions.",
     inputSchema: {
       type: "object",
-      properties: { workspace_id: { type: "string" } },
+      properties: {
+        workspace_id: { type: "string" },
+        project_path: { type: "string", description: "Absolute path to project folder (Cowork: use instead of workspace_id)" },
+      },
       required: [],
     },
     handler: tool_read_workshop_state,
+  },
+  register_workspace: {
+    description: "Add or update a workspace entry in ~/.core/index.json. Safe to call repeatedly (upsert).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace_id: { type: "string", description: "Unique workspace identifier" },
+        name: { type: "string", description: "Human-readable workspace name" },
+        path: { type: "string", description: "Absolute path to the project folder" },
+        last_active: { type: "string", description: "ISO 8601 timestamp (defaults to now if omitted)" },
+        delivery_risk: { type: "string", description: "Risk level: low | medium | high" },
+      },
+      required: ["workspace_id"],
+    },
+    handler: tool_register_workspace,
+  },
+  unregister_workspace: {
+    description: "Remove a workspace entry from ~/.core/index.json.",
+    inputSchema: {
+      type: "object",
+      properties: { workspace_id: { type: "string" } },
+      required: ["workspace_id"],
+    },
+    handler: tool_unregister_workspace,
+  },
+  update_workspace_last_active: {
+    description: "Update the last_active timestamp for a workspace in ~/.core/index.json.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace_id: { type: "string" },
+        timestamp: { type: "string", description: "ISO 8601 timestamp (defaults to now if omitted)" },
+      },
+      required: ["workspace_id"],
+    },
+    handler: tool_update_workspace_last_active,
+  },
+  write_workspace_manifest: {
+    description: "Write or replace the workspace manifest at ~/.core/workspaces/<id>/workspace.json. Creates the directory if needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace_id: { type: "string" },
+        manifest: { type: "object", description: "Full manifest object (see schemas/workspace.md)" },
+      },
+      required: ["workspace_id", "manifest"],
+    },
+    handler: tool_write_workspace_manifest,
+  },
+  append_dm_profile_entry: {
+    description: "Append a bullet-point entry to a named section in ~/.core/dm-profile.md.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        section: { type: "string", description: "Section heading without ## (e.g. 'Evolution Log')" },
+        entry: { type: "string", description: "Entry text without leading '- '" },
+      },
+      required: ["section", "entry"],
+    },
+    handler: tool_append_dm_profile_entry,
+  },
+  update_dm_profile_section: {
+    description: "Replace the full content of a named section in ~/.core/dm-profile.md.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        section: { type: "string", description: "Section heading without ## (e.g. 'Cross-Project Learnings')" },
+        content: { type: "string", description: "New section content (markdown, without the ## heading line)" },
+      },
+      required: ["section", "content"],
+    },
+    handler: tool_update_dm_profile_section,
+  },
+  append_vibe_log: {
+    description: "Append a vibe entry to ~/.core/vibes/vibe-log.md. Creates the file and directory if needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        date: { type: "string", description: "YYYY-MM-DD" },
+        label: { type: "string", description: "Short session label (e.g. 'iteration-2 build')" },
+        vibe: { type: "string", description: "One-line vibe description" },
+        ascii_art: { type: "string", description: "Optional ASCII art block" },
+      },
+      required: ["date", "vibe"],
+    },
+    handler: tool_append_vibe_log,
+  },
+  write_swarm_narrative: {
+    description: "Write or append to ~/.core/workspaces/<id>/swarm-narrative.md. Creates the workspace directory if needed.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace_id: { type: "string" },
+        content: { type: "string", description: "Narrative content (markdown)" },
+        append: { type: "boolean", description: "If true, append to existing file; otherwise overwrite (default: false)" },
+      },
+      required: ["workspace_id", "content"],
+    },
+    handler: tool_write_swarm_narrative,
+  },
+  read_workspace_at_path: {
+    description: "Read workspace.json pointer and PROJECT.md from an absolute project folder path, independent of the index. Essential for Cowork where the project root is folder-scoped.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Absolute filesystem path to the project folder" },
+      },
+      required: ["path"],
+    },
+    handler: tool_read_workspace_at_path,
   },
 };
 

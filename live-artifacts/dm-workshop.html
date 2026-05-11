@@ -435,9 +435,44 @@
         if (scene)   scene.classList.remove("hidden");
       }
 
+      // --- Resolve Cowork project root for accurate workspace display ---
+      // Uses window.cowork.askClaude (~2s latency, Q7 empirically confirmed).
+      // Falls back silently when askClaude is unavailable (Claude Code CLI case).
+      async function getProjectRoot() {
+        if (typeof window.cowork === "undefined" || typeof window.cowork.askClaude !== "function") {
+          return null;
+        }
+        try {
+          var resp = await window.cowork.askClaude(
+            "Reply with only the absolute filesystem path of this Cowork project folder. Nothing else — no explanation, no punctuation, just the path."
+          );
+          var text = (resp && resp.text) ? resp.text.trim() : "";
+          var lines = text.split("\n");
+          for (var i = 0; i < lines.length; i++) {
+            var raw = lines[i].trim();
+            if (!raw) continue;
+            // Strip surrounding backtick / quote decorators the DM might add
+            var line = raw.replace(/^[`'"]+|[`'"]+$/g, "").trim();
+            // Accept Unix absolute path (/...) or Windows absolute path (C:\...)
+            if (line.length > 1 && (line.charAt(0) === "/" || /^[A-Za-z]:[\\/]/.test(line))) {
+              return line.replace(/\/$/, ""); // strip trailing slash
+            }
+            // Fallback: extract first path-like substring from prefixed responses
+            // e.g. "Path: /Users/..." or "The project root is /Users/..."
+            var m = raw.match(/(?:^|[\s:])(\\/[^\s`'"]+)/);
+            if (m) return m[1].replace(/[.,;:!?)\]]+$/, "").replace(/\/$/, "");
+          }
+        } catch (e) { /* silent fallback */ }
+        return null;
+      }
+
       // --- Bootstrap ---
       async function init() {
-        var workshopState = await CoreHelpers.tools.readWorkshopState();
+        // Resolve Cowork project root for project-scoped workspace display.
+        // In Claude Code CLI, getProjectRoot() returns null and we fall back to
+        // list_workspaces().most_recent (the pre-iteration-2 behavior).
+        var projectRoot = await getProjectRoot();
+        var workshopState = await CoreHelpers.tools.readWorkshopState(undefined, projectRoot);
 
         if (!workshopState) {
           // MCP unavailable — offline/snapshot mode
