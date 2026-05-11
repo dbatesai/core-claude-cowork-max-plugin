@@ -1,0 +1,290 @@
+# CORE Assumption Catalog
+# Loaded by the DM at SessionStart when debug mode is active.
+# Loaded by host hooks at hook entry to drive assumption checks against
+# observed behavior. Updated by the dream cycle as new patterns surface
+# from accumulated session observations.
+#
+# Full design rationale: outputs/2026-05-10/debug-mode-design.md
+# (in the CORE source data repo, not shipped with the skill)
+#
+# Schema:
+#   version: integer
+#   assumptions: list of:
+#     id: short stable ID (A1, A2, ...)
+#     statement: one-line claim from the spec
+#     spec_sources: list of spec file + section references
+#     triggers: list of operations that surface this assumption
+#     expected: list of behaviors to observe
+#     failure_indicators: list of behaviors that would invalidate
+#     severity: high | medium | low
+#     harness: both | cowork | cowork-only | cowork-max | claude-code
+#     confirmed_by: list of empirical evidence (probes, sessions, etc.)
+#     invalidated_by: list (set when an assumption is empirically broken)
+
+version: 1
+last_updated: 2026-05-10
+
+assumptions:
+  - id: A1
+    statement: DM file tool is folder-scoped, default-deny in Cowork
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-plugin-spec.md §6
+      - docs/specs/2026-05-10-core-claude-cowork-max-plugin-spec.md §6
+    triggers:
+      - DM Read or Edit on host path outside connected folders
+    expected:
+      - Returns error matching "outside this session's connected folders"
+      - OR returns "intentionally not accessible"
+    failure_indicators:
+      - Read/Edit succeeds silently on host path outside connected folders
+      - Connected-folder allowlist expands without user approval
+    severity: high
+    harness: cowork
+    confirmed_by:
+      - probe 2026-05-10 Phase 0 (paste-in scope test)
+
+  - id: A2
+    statement: request_cowork_directory is per-session; one approval per path subtree grants recursive access
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-plugin-spec.md §6
+    triggers:
+      - DM call to mcp__cowork__request_cowork_directory
+    expected:
+      - User receives one-click approval dialog
+      - After approval, recursive subtree reads succeed without further dialogs
+      - Approval does NOT persist to next session
+    failure_indicators:
+      - Dialog skipped (silent approval)
+      - Repeated dialogs for the same already-approved path
+      - Approval persists across sessions
+    severity: medium
+    harness: cowork
+    confirmed_by:
+      - probe 2026-05-10 Confirmation 1
+
+  - id: A3
+    statement: update_artifact mutates the artifact in place (same ID, content changes)
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-max-plugin-spec.md §7.2 §11
+    triggers:
+      - any update_artifact call (DM-side or via window.cowork)
+    expected:
+      - Same artifact ID before and after
+      - Content reflects new payload
+      - Only updatedAt timestamp differs in metadata
+    failure_indicators:
+      - New artifact ID returned
+      - Original artifact persists alongside the update
+      - update_artifact returns error
+    severity: high
+    harness: cowork
+    confirmed_by:
+      - probe 2026-05-10 Q2 (core-probe-q2-counter mutate test)
+
+  - id: A4
+    statement: Cowork loads claude_desktop_config.json at app start, not session start
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-max-plugin-spec.md §11 §13
+    triggers:
+      - SessionStart hook writes to claude_desktop_config.json
+    expected:
+      - New MCP entries NOT visible in same Cowork session
+      - New MCP entries NOT visible in fresh sessions opened in same app instance
+      - New MCP entries ARE visible in fresh sessions after Cmd+Q + reopen
+    failure_indicators:
+      - New entries visible in same session (hot reload)
+      - New entries visible in fresh same-app session (per-session reload)
+    severity: high
+    harness: cowork
+    confirmed_by:
+      - probe 2026-05-10 Q4 (host write + same-session, fresh-same-app, post-restart tests)
+
+  - id: A5
+    statement: SessionStart hook fires on macOS host with full filesystem privilege
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-plugin-spec.md §3
+      - docs/specs/2026-05-10-core-claude-code-plugin-spec.md §3
+    triggers:
+      - any SessionStart event
+    expected:
+      - Hook reads/writes ~/.claude/skills/core/, ~/.core/, project paths without privilege errors
+      - Hook bash environment has HOME, USER, etc.
+    failure_indicators:
+      - Permission denied on host paths
+      - Hook silently skipped
+      - Hook stdin missing session_id JSON
+    severity: high
+    harness: both
+    confirmed_by:
+      - probe 2026-05-09d (cowork validation T1-T5)
+      - probe 2026-05-10 Confirmation 3
+
+  - id: A6
+    statement: window.cowork.callMcpTool has client-side argument validation that rejects malformed shapes pre-IPC
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-max-plugin-spec.md §11
+    triggers:
+      - any artifact-side window.cowork.callMcpTool call
+    expected:
+      - Calls with the documented args shape succeed with ~180ms IPC latency
+      - Calls with malformed shape return MCP-error-shape envelope at 0-1ms latency
+    failure_indicators:
+      - All artifact-side calls now succeed regardless of shape (validation removed)
+      - All artifact-side calls now fail (bridge blocked entirely)
+    severity: medium
+    harness: cowork
+    confirmed_by:
+      - probe 2026-05-10 Q3 retry (both flat-args and wrapper-args failed identically)
+
+  - id: A7
+    statement: DM-side mcp__core__* calls succeed when CORE MCP server is registered AND Cowork has restarted since registration
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-max-plugin-spec.md §3 §7
+    triggers:
+      - any DM call to mcp__core__*
+    expected:
+      - Tool call returns structured response within typical MCP latency
+      - Tool appears in DM's available tools list
+    failure_indicators:
+      - "Tool not found" error
+      - Tool list missing mcp__core__* entries despite registration
+    severity: high
+    harness: cowork-max
+    confirmed_by:
+      - probe 2026-05-10 Q4 step 4 (post-app-restart DM call to mcp__core-test-echo-v2__probe_marker succeeded)
+
+  - id: A8
+    statement: Hook stdout-injection delivers content to DM context
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-plugin-spec.md §3
+    triggers:
+      - SessionStart hook stdout writes to DM-injection markers
+    expected:
+      - DM context includes the injected markers and content
+      - DM acknowledges injection in its initial turns
+    failure_indicators:
+      - DM context missing the markers
+      - DM unaware of injected content
+      - Injection truncated mid-content
+    severity: high
+    harness: both
+    confirmed_by:
+      - probe 2026-05-09d T6-T7
+
+  - id: A9
+    statement: runScheduledTask exists and fires at or near the scheduled time
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-max-plugin-spec.md §8 §9 §11
+    triggers:
+      - any DM or artifact call to schedule a task
+    expected:
+      - Task is created with a returned task ID
+      - lastRun timestamp updates near the scheduled time (within ~minutes tolerance)
+    failure_indicators:
+      - Tool not found
+      - Task scheduled but never fires
+      - lastRun timestamp far off the scheduled time
+    severity: medium
+    harness: cowork
+    confirmed_by:
+      - probe 2026-05-10 Q1 (Core probe q1 scheduled at 13:47, lastRun 13:48:43)
+    open_questions:
+      - Visibility behavior — does firing spawn a visible session window, run silently, or require user-present? Pending David's recall.
+
+  - id: A10
+    statement: mcp_tools allow-list parameter on create_artifact is empirically advisory, not enforced
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-max-plugin-spec.md §13 TM-12
+    triggers:
+      - any artifact-side window.cowork.callMcpTool call to a tool not in the artifact's declared mcp_tools
+    expected:
+      - Call hits the same client-side args validation that blocks listed tools (A6)
+      - No distinct "allow-list block" error message surfaces
+    failure_indicators:
+      - Calls to non-listed tools succeed (would indicate allow-list never enforced)
+      - Calls to non-listed tools error with a distinct "not in allow-list" message (would indicate it IS enforced — positive finding to fold back into spec)
+    severity: low
+    harness: cowork
+    confirmed_by:
+      - probe 2026-05-10 Q6 retry (both IN-LIST and NOT-IN-LIST failed identically)
+
+  - id: A11
+    statement: PROJECT.md is the sole authoritative read surface for project facts; DM never references handoff content or memory content as authoritative
+    spec_sources:
+      - CLAUDE.md (project-level)
+      - protocols/startup.md Phase 3A
+    triggers:
+      - DM bootstrap reads
+      - DM responses citing project state
+    expected:
+      - DM cites PROJECT.md as the source for state, moves, decisions, risks, people
+      - DM treats auto-memory as cache, verified against PROJECT.md
+      - DM does not re-read handoff bodies at bootstrap
+    failure_indicators:
+      - DM references facts from handoff content not in PROJECT.md
+      - DM references stale memory entries as authoritative
+      - DM resurrects user-deleted facts from handoffs
+    severity: high
+    harness: both
+    confirmed_by:
+      - DC-16 / Session 29 redesign
+
+  - id: A12
+    statement: dm-profile.md is dream-cycle-only writes (no ad-hoc mid-session writes)
+    spec_sources:
+      - DC-26
+      - protocols/data-storage.md
+    triggers:
+      - any DM Write or Edit to ~/.core/dm-profile.md
+    expected:
+      - Mid-session writes do not occur
+      - Dream cycle is the sole writer
+    failure_indicators:
+      - DM writes dm-profile.md outside a dream cycle
+      - Multiple writers within a single session (race window)
+    severity: medium
+    harness: both
+    confirmed_by:
+      - DC-26 design
+
+  - id: A13
+    statement: Improvement queue auto-applies at SessionStart with backup + audit log + queue clear
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-plugin-spec.md §3
+    triggers:
+      - SessionStart with non-empty improvement-queue.md
+    expected:
+      - Backup of pre-change state created at ~/.core/skill-backups/
+      - Queue entries applied to ~/.claude/skills/core/
+      - Audit log appended with diff
+      - improvement-queue.md emptied on success
+    failure_indicators:
+      - Queue still non-empty after SessionStart
+      - No backup created before apply
+      - Audit log missing entries
+    severity: medium
+    harness: both
+    confirmed_by:
+      - design only; first empirical observation pending
+
+  - id: A14
+    statement: Companion skills (orient, finalize, vibecheck) load alongside core
+    spec_sources:
+      - docs/specs/2026-05-10-core-claude-cowork-plugin-spec.md §2
+      - docs/specs/2026-05-10-core-claude-cowork-max-plugin-spec.md §2
+      - docs/specs/2026-05-10-core-claude-code-plugin-spec.md §2
+    triggers:
+      - SessionStart (any plugin)
+    expected:
+      - All four skills (core, orient, finalize, vibecheck) appear in the DM's available-skills list
+      - /orient, /finalize, /vibecheck slash commands are invocable
+    failure_indicators:
+      - One or more companion skills missing
+      - Bundled snapshot overrides newer host install (or vice versa) incorrectly
+    severity: low
+    harness: both
+    confirmed_by:
+      - design only; first empirical observation pending
+
+  # A15-A17 are max-plugin-specific; added to the catalog when implementation begins
+  # See outputs/2026-05-10/debug-mode-design.md for full schema and design rationale

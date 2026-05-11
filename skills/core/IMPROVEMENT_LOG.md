@@ -1,0 +1,28 @@
+# CORE Skill Improvement Log
+
+## 2026-05-10 (memory-sync skill creation + first live cycle) — No CORE skill changes this session.
+Session focus: built `/memory-sync` from a Claude.ai chat brief — a new skill at `~/.claude/skills/memory-sync/` that bridges Claude Code's local memory and Claude.ai chat memory via paste-based transport. Three significant revisions during the session: (1) shifted from hardcoded memory paths to inference-based discovery after David said "less prescriptive, more inference-based"; (2) added bare-invocation mode so `/memory-sync` walks the user through the cycle conversationally instead of requiring memorized sub-commands; (3) updated snapshot format to v2.0 to capture both explicit user edits AND derived memory + self-reported gaps, after Claude.ai chat pushed back that v1 was too narrow. First real cycle ran end-to-end: 6-user-edit / 10-domain / 17-gap snapshot ingested cleanly, brief generated 4 ADD operations targeting behavioral rules (writing voice, no sycophancy, outcome language, product-spec verification) plus extensive CONTEXT covering post-TM CORE state, side-skill ecosystem, Conneely Layer 3, local LLM Expert Review pivot, R11 3090 upgrade, MS Teams removal, and others. Cycle paused at log-cycle pending paste-back of Claude.ai's confirmation. Memory bug caught and fixed: `project_vehicle_rangerover.md` was mislabeled as David's vehicle; it's actually Pat's (David's friend doing the Palm Springs road trip). Two new feedback memory entries added: `feedback_no_sycophancy.md` (no DM-announcement preamble) and the memory-sync project entry. No CORE skill file modifications.
+
+## 2026-05-10 (claude-buddy install + adversarial security audit) — No skill changes this session.
+Session focus: David asked for thorough security review of `1270011/claude-buddy` (third-party reimplementation of Anthropic's removed April Fools tamagotchi for Claude Code) before installing. Composed CORE adversarial swarm with anti-anchoring critic (Anvil framed threat model + "must not" tripwires before any code was read), supply chain auditor (Vex), runtime behavior auditor (Probe), and install surface auditor (Quill) — all dispatched in parallel. All four converged on SAFE-TO-INSTALL with caveats; each of Anvil's five tripwires explicitly cleared with file:line evidence. Install proceeded with backups, succeeded; companion Gravy generated. Notable DM judgment slip: Quill's audit flagged that buddy's installer overwrites `settings.statusLine` (single-key field, not array merge); I downgraded to yellow flag instead of stop-and-confirm warning, and David's custom Catppuccin/CORE-milestone statusline got clobbered. David caught it; restored from backup in seconds. Lesson recorded as `feedback_audit_overwrite_warnings.md` in auto-memory: when an audit identifies "installer rewrites field X (not merges)", surface as sharp pre-install warning, not buried yellow flag. No modifications to SKILL.md, protocols, agents, schemas, or templates.
+
+## 2026-05-10 (Range Rover road trip HTMLs) — No skill changes this session.
+Session focus: authored four shareable HTML road trip guides for David's 2025 Range Rover P550e (Seattle → Palm Springs) on Desktop, covering 2-day fast / average / comfortable 30%-floor / minimize-gas optimization targets. Notable correction mid-session: initial draft incorrectly stated the P550e doesn't support DC fast charging — David pushed back, research against EPA fueleconomy.gov + Land Rover UK 2025 technical PDF confirmed 50 kW CCS Combo DC fast charging IS supported. Fed correction back through all subsequent deliverables. No modifications to SKILL.md, protocols, agents, schemas, or templates.
+
+## 2026-05-10 (Langfuse updater script) — No skill changes this session.
+Session focus: authored `langfuse-selfhost.nosync/update.sh` for the local-llm-build workspace covering OrbStack + 6-container compose update flow. No modifications to SKILL.md, protocols, agents, schemas, or templates.
+
+## 2026-04-28 (watch-research session) — No skill file changes. Observation logged.
+Research agent brief gap identified: agents relying on page copy for complications missed watches where specs are JavaScript-rendered. Correct approach: (1) if page copy is silent on complications, look up the movement caliber and derive from known spec (SW200-1/SW300-1/ETA 2824 = Date; SW330-2 = GMT+Date; ETA 2836 = Day+Date); (2) visually confirm from product image. Should be added to swarm-research.md as a mandatory inference step for product research tasks. Deferred to a CORE project session.
+
+## 2026-05-09 (R11 GPU upgrade session) — No skill changes this session.
+Session focus: continued from desktop-app conversation about R11 GPU sizing. Picked up in terminal for cross-session continuity. Verified GPU/fan/adapter purchases against vendor pages, closed PSU-1 via three-line evidence convergence (msinfo32 dump + chassis plate + operator recollection), confirmed single-GPU + WSL2 substrate decisions. No modifications to SKILL.md, protocols, agents, schemas, or templates.
+
+## 2026-05-09 — No skill changes this session.
+Session focus: Claude Code permissions research. No modifications to SKILL.md, protocols, agents, schemas, or templates.
+
+## 2026-04-28 — No skill changes this session.
+Session focus: resume-claude project. No modifications to SKILL.md, protocols, agents, schemas, or templates.
+
+## 2026-05-09 (statusline portable-prompt session) — No skill changes this session.
+Session focus: produced a portable installation prompt for the Catppuccin statusline script at ~/.claude/docs/statusline-portable-prompt.md. No modifications to SKILL.md, protocols, agents, schemas, or templates.
