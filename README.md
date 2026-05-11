@@ -100,15 +100,44 @@ The CORE skill is open source at `dbatesai/core-skill`. The MCP server tools are
 
 ---
 
+## Requirements
+
+- **Python 3.11+** in PATH as `python3`.
+  - **macOS:** ships with `python3`. If missing, install via `brew install python@3.11` or download from [python.org](https://www.python.org/downloads/).
+  - **Windows:** download Python 3.11+ from [python.org](https://www.python.org/downloads/) (NOT the Microsoft Store version). During install, check **Add Python to PATH** and **Install py launcher**. After install, verify with `where python3` in a new terminal — both `python3` and `python` should resolve to the same interpreter.
+  - **Linux:** install via your package manager (`apt install python3` on Debian/Ubuntu; `dnf install python3` on Fedora).
+- **Cowork** (the Anthropic native-app harness this plugin targets). Plugin hooks run on the host with full filesystem privilege; the CORE MCP server runs in an isolated venv at `~/.core/mcp-venv/` and is registered automatically on first session.
+
 ## Troubleshooting
 
-**Dashboard not showing live state?** Quit Cowork (Cmd+Q) and reopen — the MCP server loads at app start, not session start. One restart after install is required.
+**Dashboard not showing live state?** Quit Cowork (Cmd+Q on macOS, close and reopen on Windows) — the MCP server loads at app start, not session start. One restart after install is required.
 
 **Wizard opened again unexpectedly?** The plugin detected no `PROJECT.md` in your current folder. Either use the wizard to set up this folder, or open Cowork in the folder where your existing project lives.
 
 **Improvement queue over cap?** You'll see a `CORE-QUEUE-OVER-CAP` marker in the DM's first message. Review `~/.core/improvement-queue.md` manually and delete or apply entries. The default cap is 5 (set `CORE_IMPROVEMENT_QUEUE_CAP=<n>` env var to override).
 
 **MCP registration failed?** The DM will note this and run in snapshot mode (dashboard shows last-session state, not live state). Check `~/.core/mcp-install-log.md` for the error. Set `CORE_MCP_INSTALL_MANUAL=1` to disable auto-registration and manage the config manually.
+
+**Windows: `python3` not found?** Python 3.7+ installers from python.org create both `python` and `python3` aliases. If only `python` is available:
+- Open `${CLAUDE_PLUGIN_ROOT}/hooks/hooks.json`
+- Replace `python3` with `python` in both `command` fields
+- Or re-run the python.org installer with "Add Python to PATH" enabled
+
+**Path semantics on Windows.** The plugin's Claude Desktop / Cowork config target is `%APPDATA%\Claude\claude_desktop_config.json` (resolved automatically by `mcp_server_install.py`). The venv lives at `%USERPROFILE%\.core\mcp-venv\` with `Scripts\python.exe` as the entry. No `bin/` directory on Windows — `Scripts/` is the conventional location.
+
+## Cross-platform notes (for plugin developers)
+
+The plugin's hook scripts and MCP installer are pure Python (cross-platform via `pathlib`, `platform.system()`, and the `venv` module). The `hooks/hooks.json` invokes them with the explicit `python3` interpreter — the canonical pattern for cross-platform Claude Code plugins per the [community guide](https://claudefa.st/blog/tools/hooks/cross-platform-hooks) and verified against Anthropic's plugin reference.
+
+If you fork this plugin:
+- All file paths use `pathlib.Path` — no hardcoded separators
+- Home directory: `Path.home()`, never `$HOME` or `%USERPROFILE%`
+- Per-OS config paths: `core_helpers.claude_config_path()` branches on `platform.system()`
+- Lock files: mkdir-based atomic locking (no `flock` — Linux-only)
+- Skill bundling: `shutil.copytree` (no `rsync` — not on Windows)
+- `.gitattributes` enforces LF line endings on `.sh`/`.py`, CRLF on `.bat`/`.cmd`
+
+Thin `.sh` and `.cmd` shims are provided in `scripts/` for users who want explicit shell entry points, but `hooks/hooks.json` invokes the `.py` files directly — no wrapper layer.
 
 ---
 

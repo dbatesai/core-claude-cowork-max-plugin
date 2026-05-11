@@ -16,11 +16,15 @@ on:
 
 jobs:
   # --------------------------------------------------------------------------
-  # Job 1: Build and test MCP server
+  # Job 1: Build and test MCP server (cross-platform matrix)
   # --------------------------------------------------------------------------
   mcp-server:
-    name: MCP server — build + test
-    runs-on: macos-latest
+    name: MCP server — build + test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
 
@@ -56,6 +60,47 @@ jobs:
           else
             echo "No tests directory found — skipping (add mcp-server/tests/ to enable)"
           fi
+
+  # --------------------------------------------------------------------------
+  # Job 1b: Hook scripts cross-platform smoke (Python syntax + self-test)
+  # --------------------------------------------------------------------------
+  hook-scripts:
+    name: Hook scripts — cross-platform smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Python syntax check (all scripts)
+        run: |
+          python -m py_compile scripts/core_helpers.py scripts/session_start.py scripts/session_end.py scripts/mcp_server_install.py scripts/refresh_bundled_skills.py
+          python -m py_compile scripts/ci/check-inline-scripts.py scripts/ci/verify-cdn-pins.py scripts/ci/check-svg-security.py scripts/ci/validate-templates.py scripts/ci/validate-connectors.py scripts/ci/validate-manifests.py
+
+      - name: core_helpers self-test (no real config writes)
+        env:
+          CORE_DATA_DIR: ${{ runner.temp }}/core-self-test
+        run: python scripts/core_helpers.py
+
+      - name: claude_config_path resolves per-OS (no writes)
+        run: |
+          python -c "
+          import sys
+          sys.path.insert(0, 'scripts')
+          import core_helpers as ch
+          p = ch.claude_config_path()
+          assert p.is_absolute(), f'config path not absolute: {p}'
+          print(f'OS={ch.SYSTEM} config_path={p}')
+          vp = ch.venv_python(ch.CORE_DATA_DIR / 'mcp-venv')
+          assert vp.is_absolute(), f'venv python path not absolute: {vp}'
+          print(f'venv_python={vp}')
+          "
 
   # --------------------------------------------------------------------------
   # Job 2: Validate HTML live artifacts
