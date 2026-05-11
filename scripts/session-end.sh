@@ -1,72 +1,91 @@
 #!/usr/bin/env bash
 # CORE Cowork Max plugin — SessionEnd hook
 # Runs on macOS host after the Cowork session ends.
-# Responsibilities: flock-safe dm-profile write, dream-cycle synthesis apply.
+# Responsibilities: safe dm-profile write, dream-cycle synthesis apply.
+#
+# Uses mkdir-based atomic locking (portable; macOS lacks flock).
 
 set +e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/core-helpers.sh"
 
-LOCK_FILE="$CORE_DATA_DIR/dm-profile.lock"
+LOCK_DIR="$CORE_DATA_DIR/dm-profile.lock.d"
 DM_PROFILE="$CORE_DATA_DIR/dm-profile.md"
 PENDING_PROFILE="$CORE_DATA_DIR/dm-profile-pending.md"
+DREAM_PENDING="$CORE_DATA_DIR/dream-cycle-pending.md"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 SESSION_LOG="$CORE_DATA_DIR/logs/sessions.md"
 
 # --------------------------------------------------------------------------
-# Flock-safe dm-profile write
-# If a pending dm-profile update was staged during the session, apply it now
-# under an exclusive lock (prevents concurrent session corruption).
+# Atomic lock acquisition (mkdir-based, portable across macOS + Linux)
+# Returns 0 on lock acquired, 1 on timeout.
+# --------------------------------------------------------------------------
+
+acquire_lock() {
+  local timeout_seconds="${1:-5}"
+  local elapsed=0
+  while [ $elapsed -lt $timeout_seconds ]; do
+    if mkdir "$LOCK_DIR" 2>/dev/null; then
+      # Stale-lock cleanup if our process dies: lock dir contains our PID
+      echo "$$" > "$LOCK_DIR/pid"
+      return 0
+    fi
+    # Check if existing lock is stale (process no longer running)
+    if [ -f "$LOCK_DIR/pid" ]; then
+      local stale_pid; stale_pid="$(cat "$LOCK_DIR/pid" 2>/dev/null)"
+      if [ -n "$stale_pid" ] && ! kill -0 "$stale_pid" 2>/dev/null; then
+        # Stale lock — remove and retry
+        rm -rf "$LOCK_DIR" 2>/dev/null
+        continue
+      fi
+    fi
+    sleep 1
+    elapsed=$((elapsed + 1))
+  done
+  return 1
+}
+
+release_lock() {
+  rm -rf "$LOCK_DIR" 2>/dev/null
+}
+
+# --------------------------------------------------------------------------
+# Apply pending dm-profile write (lock-protected)
 # --------------------------------------------------------------------------
 
 if [ -f "$PENDING_PROFILE" ]; then
-  (
-    # Try to acquire lock; skip if another session holds it (5s timeout)
-    flock -w 5 200 || {
-      core_log_warn "session-end: could not acquire dm-profile lock; pending update deferred"
-      exit 1
-    }
-
+  if acquire_lock 5; then
     if [ -f "$DM_PROFILE" ]; then
       cp "$DM_PROFILE" "$DM_PROFILE.bak-$TS"
     fi
-
     mv "$PENDING_PROFILE" "$DM_PROFILE"
-
-  ) 200>"$LOCK_FILE"
+    release_lock
+  else
+    core_log_warn "session-end: dm-profile lock not acquired (timeout); pending update deferred"
+  fi
 fi
 
 # --------------------------------------------------------------------------
-# Dream-cycle synthesis apply
-# If a pending dream-cycle result was staged (~/.core/dream-cycle-pending.md),
-# apply it: merge into dm-profile + indexes, then archive the pending file.
+# Apply pending dream-cycle synthesis (lock-protected)
 # --------------------------------------------------------------------------
 
-DREAM_PENDING="$CORE_DATA_DIR/dream-cycle-pending.md"
-
 if [ -f "$DREAM_PENDING" ]; then
-  (
-    flock -w 5 200 || {
-      core_log_warn "session-end: could not acquire dm-profile lock for dream-cycle; deferred"
-      exit 1
-    }
-
-    # Archive the pending file with a timestamp so it can be reviewed
+  if acquire_lock 5; then
     DREAM_APPLIED="$CORE_DATA_DIR/dream-cycle-applied-$TS.md"
     mv "$DREAM_PENDING" "$DREAM_APPLIED"
-
-    # Log that dream cycle was consumed
     {
       printf '## %s — dream-cycle applied\n' "$TS"
       printf 'Archived to: %s\n\n' "$DREAM_APPLIED"
     } >> "$CORE_DATA_DIR/logs/dream-cycle.md" 2>/dev/null || true
-
-  ) 200>"$LOCK_FILE"
+    release_lock
+  else
+    core_log_warn "session-end: dm-profile lock not acquired for dream-cycle; deferred"
+  fi
 fi
 
 # --------------------------------------------------------------------------
-# Session end log entry
+# Session end log entry (no lock needed — append-only file)
 # --------------------------------------------------------------------------
 
 {
