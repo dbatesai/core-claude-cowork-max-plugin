@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased] — 2026-05-11
+
+### Changed
+
+- **MCP server rewritten in Node.js** (`mcp-server-node/server.mjs`) — zero dependencies, ~600 lines of vanilla Node using only built-in modules (`fs`, `os`, `path`, `readline`). Replaces the Python/FastMCP implementation as the primary runtime.
+- **Three-level capability fallback ladder** (per David's instruction 2026-05-10):
+  - **L1**: Node.js + MCP server live → full live dashboard via `mcp__core__*` tools
+  - **L2**: Node missing or MCP handshake failed → DM falls back to `mcp__cowork__request_cowork_directory` + file tools; live dashboard with per-session approval
+  - **L3**: Even fallback unavailable → DM informs user via chat with install instructions
+- **`mcp_server_install.py`** now probes Node availability + end-to-end MCP handshake (3s timeout) instead of installing a Python venv. Capability state persisted to `~/.core/capability.json`; re-probe gated by `CORE_CAPABILITY_REPROBE=1` env var to keep working installs stable.
+- **`session_start.py`** emits `[[CORE-CAPABILITY-LEVEL]]` marker so the DM knows which mode to operate in.
+
+### Added
+
+- `CORE_DRY_RUN=1` env var on `mcp_server_install.py` for testing without mutating the user's `claude_desktop_config.json`.
+- `CORE_CLAUDE_CONFIG_PATH` env var override (testing aid).
+
+### Deprecated
+
+- Python `mcp-server/` retained in this commit for rollback; will be removed in a follow-up commit after the Node implementation is validated in a Cowork session.
+
+---
+
 ## [1.0.0] — 2026-05-10
 
 ### Added

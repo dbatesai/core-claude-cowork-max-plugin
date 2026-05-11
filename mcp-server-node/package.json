@@ -1,0 +1,27 @@
+{
+  "name": "@core/mcp-server",
+  "version": "1.0.0",
+  "description": "CORE MCP server — zero-dependency Node.js implementation for the CORE Cowork Max plugin",
+  "type": "module",
+  "main": "server.mjs",
+  "bin": {
+    "core-mcp-server": "./server.mjs"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "smoke": "echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}' | node server.mjs | head -1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "David Bates",
+    "email": "david_bates@mac.com"
+  },
+  "keywords": ["mcp", "model-context-protocol", "core", "cowork"],
+  "files": [
+    "server.mjs",
+    "README.md"
+  ]
+}

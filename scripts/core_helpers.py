@@ -63,10 +63,15 @@ def claude_config_path() -> Path:
     """
     Per-OS location of Claude Desktop / Cowork MCP config file.
 
+    Override via CORE_CLAUDE_CONFIG_PATH env var (useful for tests/dry-runs).
+
     macOS:   ~/Library/Application Support/Claude/claude_desktop_config.json
-    Windows: ~/AppData/Roaming/Claude/claude_desktop_config.json
-    Linux:   ~/.config/Claude/claude_desktop_config.json  (best-guess; unverified)
+    Windows: %APPDATA%/Claude/claude_desktop_config.json    (TODO: verify on Windows Cowork — unconfirmed)
+    Linux:   ~/.config/Claude/claude_desktop_config.json    (best-guess; unverified)
     """
+    override = os.environ.get("CORE_CLAUDE_CONFIG_PATH", "")
+    if override:
+        return Path(override)
     home = Path.home()
     if IS_MAC:
         return home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
@@ -76,6 +81,9 @@ def claude_config_path() -> Path:
             return Path(appdata) / "Claude" / "claude_desktop_config.json"
         return home / "AppData" / "Roaming" / "Claude" / "claude_desktop_config.json"
     return home / ".config" / "Claude" / "claude_desktop_config.json"
+
+
+DRY_RUN: bool = os.environ.get("CORE_DRY_RUN", "0") == "1"
 
 
 def connectors_dir() -> Path:

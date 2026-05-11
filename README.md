@@ -100,13 +100,29 @@ The CORE skill is open source at `dbatesai/core-skill`. The MCP server tools are
 
 ---
 
+## Capability levels
+
+The plugin runs at one of three capability levels, decided automatically at first install. The DM tells you which level is active in chat.
+
+| Level | What you get | Requires | If unavailable |
+|---|---|---|---|
+| **1 — Live dashboard via MCP server** | Trust Strip Dashboard refreshes in real time; DM Workshop reflects current state; no per-session approval click | Node.js 18+ installed on host | Falls back to Level 2 |
+| **2 — Live dashboard via file tools** | Same live dashboard, but the DM uses Cowork's `request_cowork_directory` permission + Read/Write file tools to read project state. Requires a one-click approval each session. | Cowork's native file-tool permission flow | Falls back to Level 3 |
+| **3 — Chat-only (FYI)** | No live artifact; the DM still works for chat-based delivery management, adversarial swarms, and `PROJECT.md` updates | Nothing extra | DM will tell you how to enable Level 2 or 1 |
+
+Capability is probed once at first SessionStart and persisted to `~/.core/capability.json`. To re-probe (after installing Node.js, for example), set `CORE_CAPABILITY_REPROBE=1` in your environment and start a new session.
+
 ## Requirements
 
-- **Python 3.11+** in PATH as `python3`.
+- **Python 3.11+** in PATH as `python3` (required — hook scripts).
   - **macOS:** ships with `python3`. If missing, install via `brew install python@3.11` or download from [python.org](https://www.python.org/downloads/).
-  - **Windows:** download Python 3.11+ from [python.org](https://www.python.org/downloads/) (NOT the Microsoft Store version). During install, check **Add Python to PATH** and **Install py launcher**. After install, verify with `where python3` in a new terminal — both `python3` and `python` should resolve to the same interpreter.
+  - **Windows:** download Python 3.11+ from [python.org](https://www.python.org/downloads/) (NOT the Microsoft Store version). During install, check **Add Python to PATH** and **Install py launcher**. After install, verify with `where python3` in a new terminal.
   - **Linux:** install via your package manager (`apt install python3` on Debian/Ubuntu; `dnf install python3` on Fedora).
-- **Cowork** (the Anthropic native-app harness this plugin targets). Plugin hooks run on the host with full filesystem privilege; the CORE MCP server runs in an isolated venv at `~/.core/mcp-venv/` and is registered automatically on first session.
+- **Node.js 18+** in PATH as `node` (optional — unlocks Level 1 live dashboard via the CORE MCP server). If absent, plugin runs at Level 2 (file-tool fallback).
+  - **macOS:** `brew install node` or download from [nodejs.org](https://nodejs.org/).
+  - **Windows:** download the LTS installer from [nodejs.org](https://nodejs.org/). Verify with `node --version`.
+  - **Linux:** via package manager or [nodejs.org](https://nodejs.org/).
+- **Cowork** (the Anthropic native-app harness this plugin targets). Plugin hooks run on the host with full filesystem privilege.
 
 ## Troubleshooting
 

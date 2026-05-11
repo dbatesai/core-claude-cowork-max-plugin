@@ -59,29 +59,51 @@ def main() -> int:
             if not ch.apply_improvement_queue(queue, queue_log_dir):
                 ch.log_warn("improvement-queue application failed; queue preserved for next session")
 
-    # 3. MCP server registration (idempotent; runs unless explicitly disabled)
+    # 3. Capability probe + MCP server registration (idempotent; runs unless explicitly disabled).
+    # Three levels per David's fallback ladder:
+    #   L1 = Node.js + MCP server live → full MCP-backed dashboard
+    #   L2 = Node missing or MCP failed → DM uses request_cowork_directory + file tools
+    #   L3 = even fallback unavailable → DM informs user via chat (FYI)
     if os.environ.get("CORE_MCP_INSTALL_MANUAL", "0") != "1":
         installer = _SCRIPT_DIR / "mcp_server_install.py"
         if installer.is_file():
             try:
-                result = subprocess.run(
+                subprocess.run(
                     [sys.executable, str(installer)],
                     check=False,
                     capture_output=True,
                     text=True,
+                    timeout=15,
                 )
-                if result.returncode == 0:
-                    # Restart-pending flag indicates a fresh registration
-                    if (ch.CORE_DATA_DIR / "needs-app-restart").exists():
-                        ch.marker("MCP-RESTART-PENDING", "MCP server registered; Cowork restart required to activate live-data dashboard")
-                    else:
-                        ch.marker("MCP-SERVER-AVAILABLE", "CORE MCP server registered and (likely) active")
-                else:
-                    ch.log_warn(f"mcp_server_install.py exit {result.returncode}: {result.stderr[:200]}")
-                    ch.marker("MCP-INSTALL-FAILED", "see ~/.core/mcp-install-log.md; dashboard runs in snapshot mode")
+            except subprocess.TimeoutExpired:
+                ch.log_warn("mcp_server_install.py timed out (15s)")
             except Exception as e:
                 ch.log_warn(f"mcp_server_install.py invocation failed: {e}")
-                ch.marker("MCP-INSTALL-FAILED", "installer not invocable; dashboard runs in snapshot mode")
+
+    # 3b. Emit capability marker for the DM (based on ~/.core/capability.json written by the installer)
+    cap_path = ch.CORE_DATA_DIR / "capability.json"
+    if cap_path.is_file():
+        try:
+            import json as _json
+            cap = _json.loads(cap_path.read_text(encoding="utf-8"))
+            level = cap.get("level", 3)
+            reason = cap.get("reason", "")
+
+            if level == 1:
+                restart_pending = (ch.CORE_DATA_DIR / "needs-app-restart").exists()
+                if restart_pending:
+                    ch.marker("CAPABILITY-LEVEL", "1-pending-restart — MCP server registered; restart Cowork to activate live dashboard")
+                else:
+                    ch.marker("CAPABILITY-LEVEL", f"1 — full live dashboard via CORE MCP server ({reason})")
+            elif level == 2:
+                ch.marker("CAPABILITY-LEVEL", f"2 — live dashboard via file tools (no MCP); reason: {reason}. DM should use request_cowork_directory + Read/Write file tools, parse PROJECT.md in-session, push HTML via mcp__cowork__update_artifact.")
+            else:
+                ch.marker("CAPABILITY-LEVEL", f"3 — no live dashboard available; reason: {reason}. DM should inform the user via chat: 'The live dashboard isn't available in this environment. CORE still works for chat-based delivery management and adversarial swarms. To enable the live dashboard: install Node.js 18+ from https://nodejs.org and restart Cowork.'")
+        except (OSError, ValueError) as e:
+            ch.log_warn(f"capability.json read failed: {e}")
+            ch.marker("CAPABILITY-LEVEL", "3 — capability state unreadable; dashboard unavailable")
+    else:
+        ch.marker("CAPABILITY-LEVEL", "3 — capability probe didn't run; dashboard unavailable. The hook may have failed to invoke the installer.")
 
     # 4. First-session detection
     if not (ch.CORE_PROJECT_ROOT / "PROJECT.md").is_file():
