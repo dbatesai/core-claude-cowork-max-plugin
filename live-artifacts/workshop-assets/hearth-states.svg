@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 120" width="500" height="120" role="img" aria-label="Hearth burn state frames">
+  <!-- 5 hearth states: 0=cold, 1=embers, 2=small-fire, 3=active, 4=roaring -->
+
+  <!-- Frame 0: cold -->
+  <g id="hearth-frame-0">
+    <rect x="10" y="40" width="80" height="60" fill="#0d1117" rx="2"/>
+    <rect x="20" y="80" width="60" height="16" fill="#1c2333"/>
+  </g>
+  <!-- Frame 1: embers -->
+  <g id="hearth-frame-1">
+    <rect x="110" y="40" width="80" height="60" fill="#0d1117" rx="2"/>
+    <ellipse cx="150" cy="92" rx="28" ry="8" fill="#7f1d1d" opacity="0.6"/>
+    <ellipse cx="150" cy="90" rx="16" ry="5" fill="#b91c1c" opacity="0.4"/>
+  </g>
+  <!-- Frame 2: small fire -->
+  <g id="hearth-frame-2">
+    <rect x="210" y="40" width="80" height="60" fill="#0d1117" rx="2"/>
+    <ellipse cx="250" cy="88" rx="20" ry="6" fill="#b91c1c" opacity="0.5"/>
+    <path d="M240,88 Q245,68 250,72 Q255,62 260,70 Q265,75 258,88 Z" fill="#ef4444" opacity="0.7"/>
+    <path d="M248,88 Q250,72 253,76 Q256,80 254,88 Z" fill="#fca5a5" opacity="0.5"/>
+  </g>
+  <!-- Frame 3: active -->
+  <g id="hearth-frame-3">
+    <rect x="310" y="40" width="80" height="60" fill="#111827" rx="2"/>
+    <ellipse cx="350" cy="95" rx="30" ry="7" fill="#dc2626" opacity="0.6" class="hearth-light"/>
+    <path d="M330,94 Q338,68 348,74 Q352,58 360,68 Q368,72 362,92 Z" fill="#ef4444" opacity="0.8" class="hearth-light"/>
+    <path d="M340,94 Q344,74 349,78 Q354,82 352,92 Z" fill="#fbbf24" opacity="0.7"/>
+    <path d="M346,94 Q349,80 352,82 Z" fill="#fde68a" opacity="0.9"/>
+  </g>
+  <!-- Frame 4: roaring -->
+  <g id="hearth-frame-4">
+    <rect x="410" y="40" width="80" height="60" fill="#1c0a00" rx="2"/>
+    <ellipse cx="450" cy="97" rx="36" ry="8" fill="#b91c1c" opacity="0.8" class="hearth-light"/>
+    <path d="M424,96 Q432,60 444,68 Q448,46 456,62 Q464,50 468,68 Q474,76 464,94 Z" fill="#ef4444" class="hearth-light"/>
+    <path d="M434,96 Q440,68 447,74 Q452,64 458,72 Q462,80 456,94 Z" fill="#fbbf24" opacity="0.9"/>
+    <path d="M442,96 Q446,74 450,78 Q454,82 452,94 Z" fill="#fde68a"/>
+    <!-- Smoke particles -->
+    <ellipse class="smoke-particle" cx="448" cy="44" rx="5" ry="8" fill="#374151" opacity="0.6"/>
+    <ellipse class="smoke-particle" cx="454" cy="38" rx="4" ry="7" fill="#4b5563" opacity="0.4"/>
+  </g>
+</svg>

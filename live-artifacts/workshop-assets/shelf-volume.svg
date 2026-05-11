@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 40" width="24" height="40" role="img" aria-label="Workspace volume on shelf">
+  <!-- Bound volume template: one per workspace, placed on shelf -->
+  <!-- Spine -->
+  <rect x="2" y="4" width="20" height="34" rx="2" fill="#2d3a52" stroke="#3b6fd4" stroke-width="1.5"/>
+  <!-- Cover shadow -->
+  <rect x="2" y="4" width="4" height="34" fill="#1a2236" opacity="0.5"/>
+  <!-- Title line (placeholder) -->
+  <rect x="7" y="12" width="10" height="2" rx="1" fill="#6b9ded" opacity="0.7"/>
+  <rect x="7" y="16" width="8" height="1.5" rx="1" fill="#6b9ded" opacity="0.4"/>
+  <!-- Pages edge (right side) -->
+  <rect x="20" y="5" width="2" height="32" rx="1" fill="#374151"/>
+</svg>

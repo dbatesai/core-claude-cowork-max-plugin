@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CORE Swarm Live View</title>
+
+  <!-- Grid.js theme -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridjs@6.1.1/dist/theme/mermaid.min.css">
+  <!-- Shared design tokens + components -->
+  <link rel="stylesheet" href="shared/styles.css">
+
+  <style>
+    /* ── Page layout ────────────────────────────────────────────── */
+    .page-wrap {
+      display: grid;
+      grid-template-rows: auto auto 1fr auto;
+      gap: var(--space-md);
+      padding: var(--space-md);
+      min-height: 100vh;
+    }
+
+    /* ── Header strip ──────────────────────────────────────────── */
+    .swarm-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-sm) var(--space-md);
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      gap: var(--space-sm);
+    }
+
+    .swarm-header-left { display: flex; flex-direction: column; gap: 2px; }
+
+    .swarm-header h1 {
+      font-size: var(--text-lg);
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .swarm-header-right {
+      display: flex;
+      align-items: center;
+      gap: var(--space-md);
+    }
+
+    /* ── Status badge ──────────────────────────────────────────── */
+    #swarm-status {
+      font-size: var(--text-sm);
+      font-weight: 700;
+      padding: 4px 12px;
+      border-radius: var(--radius-sm);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    #swarm-status.running  { background: #1e3a5f; color: #93c5fd; }
+    #swarm-status.complete { background: #166534; color: #86efac; }
+    #swarm-status.halted   { background: #7f1d1d; color: #fca5a5; }
+    #swarm-status.waiting  { background: var(--bg-surface); color: var(--text-muted); }
+
+    /* ── Stat pills row ────────────────────────────────────────── */
+    .stats-row {
+      display: flex;
+      gap: var(--space-md);
+      flex-wrap: wrap;
+    }
+
+    .stat-pill {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: var(--space-sm) var(--space-md);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      min-width: 96px;
+    }
+
+    .stat-pill .stat-value {
+      font-size: var(--text-xl);
+      font-weight: 700;
+      color: var(--core-blue-light);
+      line-height: 1;
+    }
+
+    .stat-pill .stat-label {
+      font-size: var(--text-xs);
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-top: 4px;
+    }
+
+    /* ── Main two-column body ──────────────────────────────────── */
+    .main-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-md);
+    }
+
+    @media (max-width: 800px) {
+      .main-body { grid-template-columns: 1fr; }
+    }
+
+    /* ── Topology diagram ──────────────────────────────────────── */
+    #topology-diagram {
+      min-height: 260px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: auto;
+    }
+
+    #topology-diagram .waiting-msg {
+      color: var(--text-muted);
+      font-style: italic;
+      font-size: var(--text-sm);
+      text-align: center;
+    }
+
+    /* Mermaid SVG inherits dark theme from initialization */
+    #topology-diagram svg { max-width: 100%; height: auto; }
+
+    /* ── Convergence chart ─────────────────────────────────────── */
+    .chart-wrap {
+      position: relative;
+      height: 240px;
+    }
+
+    /* ── Monitor alerts ────────────────────────────────────────── */
+    #monitor-alerts { min-height: 48px; }
+
+    .alert-item {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-sm);
+      padding: var(--space-xs) var(--space-sm);
+      background: #78350f22;
+      border-left: 3px solid var(--core-amber);
+      border-radius: var(--radius-sm);
+      margin-bottom: var(--space-xs);
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+    }
+
+    .alert-item-icon {
+      color: var(--core-amber);
+      font-style: normal;
+      flex-shrink: 0;
+    }
+
+    /* ── GridJS dark overrides (same as dashboard) ─────────────── */
+    .gridjs-wrapper,
+    .gridjs-container,
+    table.gridjs-table {
+      background: transparent !important;
+    }
+
+    .gridjs-th,
+    .gridjs-td {
+      background: var(--bg-card) !important;
+      color: var(--text-primary) !important;
+      border-color: var(--border) !important;
+      font-size: var(--text-sm) !important;
+    }
+
+    .gridjs-th {
+      color: var(--text-secondary) !important;
+      font-weight: 600 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.06em !important;
+      font-size: var(--text-xs) !important;
+    }
+
+    .gridjs-tr:hover .gridjs-td {
+      background: var(--bg-surface) !important;
+    }
+
+    .gridjs-search input,
+    .gridjs-pagination {
+      background: var(--bg-surface) !important;
+      color: var(--text-primary) !important;
+      border-color: var(--border) !important;
+    }
+
+    .gridjs-empty {
+      color: var(--text-muted) !important;
+      font-style: italic;
+      font-size: var(--text-sm) !important;
+    }
+
+    /* ── Toolbar ───────────────────────────────────────────────── */
+    .toolbar {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+    }
+  </style>
+</head>
+<body>
+
+<div class="page-wrap">
+
+  <!-- ── Header ──────────────────────────────────────────────────── -->
+  <header class="swarm-header">
+    <div class="swarm-header-left">
+      <h1>CORE Swarm Live View</h1>
+      <span id="swarm-phase" class="loading" style="font-size:var(--text-sm); color:var(--text-secondary);">loading…</span>
+    </div>
+    <div class="swarm-header-right">
+      <div class="toolbar">
+        <button class="btn btn-secondary" id="btn-refresh" type="button">
+          &#8635; Refresh
+        </button>
+      </div>
+      <span id="swarm-status" class="waiting">Waiting…</span>
+    </div>
+  </header>
+
+  <!-- ── Stat pills ──────────────────────────────────────────────── -->
+  <div class="stats-row">
+    <div class="stat-pill">
+      <span class="stat-value" id="agent-count">—</span>
+      <span class="stat-label">Agents</span>
+    </div>
+    <div class="stat-pill">
+      <span class="stat-value" id="mind-changes">—</span>
+      <span class="stat-label">Mind Changes</span>
+    </div>
+    <div class="stat-pill">
+      <span class="stat-value" id="swarm-title">—</span>
+      <span class="stat-label">Task</span>
+    </div>
+  </div>
+
+  <!-- ── Main body ───────────────────────────────────────────────── -->
+  <div class="main-body">
+
+    <!-- Left: topology + alerts -->
+    <div>
+      <div class="card">
+        <p class="section-title">Agent Topology</p>
+        <div id="topology-diagram">
+          <span class="waiting-msg">Waiting for swarm to begin…</span>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:var(--space-md);">
+        <p class="section-title">Monitor Alerts</p>
+        <div id="monitor-alerts">
+          <p class="loading">No alerts.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: convergence chart + persuasion table -->
+    <div>
+      <div class="card">
+        <p class="section-title">Convergence Trajectory</p>
+        <div class="chart-wrap">
+          <canvas id="convergence-chart" role="img" aria-label="Convergence trajectory line chart"></canvas>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:var(--space-md);">
+        <p class="section-title">Persuasion Log</p>
+        <div id="persuasion-table"></div>
+      </div>
+    </div>
+
+  </div><!-- /main-body -->
+
+</div><!-- /page-wrap -->
+
+<!-- ── CDN scripts ─────────────────────────────────────────────────── -->
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gridjs@6.1.1/dist/gridjs.umd.js"></script>
+<!-- Shared helpers (CoreHelpers) -->
+<script src="shared/helpers.js"></script>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ── Mermaid init ─────────────────────────────────────────────── */
+  mermaid.initialize({ theme: "dark", startOnLoad: false });
+
+  /* ── GridJS: persuasion log ───────────────────────────────────── */
+  var persuasionGrid = new gridjs.Grid({
+    columns: [
+      { id: "agent",       name: "Agent"        },
+      { id: "changedFrom", name: "Changed From"  },
+      { id: "changedTo",   name: "Changed To"    },
+      { id: "trigger",     name: "Trigger"       },
+    ],
+    data: [],
+    sort: true,
+    search: false,
+    pagination: { limit: 8 },
+    language: {
+      noRecordsFound: "No mind changes recorded yet.",
+    },
+    style: {
+      container: { "font-family": "var(--font-sans)" },
+    },
+  }).render(document.getElementById("persuasion-table"));
+
+  /* ── Chart.js: convergence line chart ────────────────────────── */
+  var convCtx = document.getElementById("convergence-chart").getContext("2d");
+  var convergenceChart = new Chart(convCtx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "Convergence",
+          data: [],
+          borderColor: "#4caf82",
+          backgroundColor: "rgba(76,175,130,0.12)",
+          borderWidth: 2,
+          pointRadius: 4,
+          tension: 0.35,
+          fill: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "#1f2937",
+          borderColor: "#374151",
+          borderWidth: 1,
+          titleColor: "#f1f5f9",
+          bodyColor: "#94a3b8",
+        },
+      },
+      scales: {
+        x: {
+          title: {
+            display: true,
+            text: "Phase",
+            color: "#64748b",
+            font: { size: 11 },
+          },
+          ticks: { color: "#64748b", font: { size: 11 } },
+          grid:  { color: "#374151" },
+        },
+        y: {
+          min: 0,
+          max: 1,
+          title: {
+            display: true,
+            text: "Score",
+            color: "#64748b",
+            font: { size: 11 },
+          },
+          ticks: { color: "#64748b", font: { size: 11 } },
+          grid:  { color: "#374151" },
+        },
+      },
+    },
+  });
+
+  /* ── Refresh button ───────────────────────────────────────────── */
+  document.getElementById("btn-refresh").addEventListener("click", function () {
+    CoreHelpers.tools.readSwarmTopology().then(function (result) {
+      if (!result) { return; }
+      if (result.diagram) {
+        renderTopology(result.diagram);
+      }
+      if (result.agentCount !== undefined) {
+        setNodeText("agent-count", String(result.agentCount));
+      }
+      if (result.phase) {
+        setNodeText("swarm-phase", result.phase);
+      }
+    });
+  });
+
+  /* ── Expose update API ────────────────────────────────────────── */
+  window.CORE = window.CORE || {};
+  window.CORE.swarmView = {
+    persuasionGrid: persuasionGrid,
+    convergenceChart: convergenceChart,
+
+    /**
+     * DM calls this (via update_artifact) to hydrate the live view.
+     * Partial updates are safe — only keys present in `state` are applied.
+     *
+     * @param {object}   state
+     * @param {string}   [state.swarmTitle]       task description
+     * @param {string}   [state.swarmPhase]       e.g. "Phase 2: Independent Analysis"
+     * @param {number}   [state.agentCount]
+     * @param {string}   [state.topologyDiagram]  Mermaid graph definition string
+     * @param {number}   [state.mindChanges]
+     * @param {string}   [state.swarmStatus]      "RUNNING" | "COMPLETE" | "HALTED"
+     * @param {string[]} [state.monitorAlerts]    alert strings
+     * @param {object[]} [state.persuasionRows]   [{agent,changedFrom,changedTo,trigger}]
+     * @param {object}   [state.convergence]      {labels:string[], scores:number[]}
+     */
+    update: function (state) {
+      if (state.swarmTitle !== undefined) {
+        setNodeText("swarm-title", state.swarmTitle);
+      }
+      if (state.swarmPhase !== undefined) {
+        setNodeText("swarm-phase", state.swarmPhase);
+      }
+      if (state.agentCount !== undefined) {
+        setNodeText("agent-count", String(state.agentCount));
+      }
+      if (state.mindChanges !== undefined) {
+        setNodeText("mind-changes", String(state.mindChanges));
+      }
+      if (state.swarmStatus !== undefined) {
+        setSwarmStatus(state.swarmStatus);
+      }
+      if (state.topologyDiagram !== undefined) {
+        renderTopology(state.topologyDiagram);
+      }
+      if (Array.isArray(state.monitorAlerts)) {
+        renderAlerts(state.monitorAlerts);
+      }
+      if (Array.isArray(state.persuasionRows)) {
+        persuasionGrid.updateConfig({
+          data: state.persuasionRows.map(function (r) {
+            return [r.agent, r.changedFrom, r.changedTo, r.trigger];
+          }),
+        }).forceRender();
+      }
+      if (state.convergence) {
+        convergenceChart.data.labels           = state.convergence.labels  || [];
+        convergenceChart.data.datasets[0].data = state.convergence.scores  || [];
+        convergenceChart.update();
+      }
+    },
+  };
+
+  /* ── Helpers ──────────────────────────────────────────────────── */
+
+  function setNodeText(id, value) {
+    var el = document.getElementById(id);
+    if (!el) { return; }
+    el.textContent = value;
+    el.classList.remove("loading");
+  }
+
+  function setSwarmStatus(status) {
+    var el = document.getElementById("swarm-status");
+    el.textContent = status;
+    el.className = "";
+    var s = status.toLowerCase();
+    if (s === "running") {
+      el.classList.add("running");
+    } else if (s === "complete") {
+      el.classList.add("complete");
+    } else if (s === "halted") {
+      el.classList.add("halted");
+    } else {
+      el.classList.add("waiting");
+    }
+  }
+
+  var topologyCounter = 0;
+
+  function renderTopology(graphDef) {
+    var container = document.getElementById("topology-diagram");
+    /* Clear existing children safely */
+    while (container.firstChild) {
+      container.removeChild(container.firstChild);
+    }
+
+    topologyCounter += 1;
+    var uniqueId = "mermaid-graph-" + topologyCounter;
+
+    mermaid.render(uniqueId, graphDef).then(function (result) {
+      /* result.svg is a trusted SVG string produced by mermaid itself */
+      var parser = new DOMParser();
+      var doc    = parser.parseFromString(result.svg, "image/svg+xml");
+      var svgEl  = doc.documentElement;
+      if (svgEl && svgEl.nodeName === "svg") {
+        container.appendChild(svgEl);
+      } else {
+        var fallback = document.createElement("span");
+        fallback.className = "waiting-msg";
+        fallback.textContent = "Topology render failed.";
+        container.appendChild(fallback);
+      }
+    }).catch(function () {
+      var fallback = document.createElement("span");
+      fallback.className = "waiting-msg";
+      fallback.textContent = "Topology render failed.";
+      while (container.firstChild) {
+        container.removeChild(container.firstChild);
+      }
+      container.appendChild(fallback);
+    });
+  }
+
+  function renderAlerts(alerts) {
+    var alertContainer = document.getElementById("monitor-alerts");
+    while (alertContainer.firstChild) {
+      alertContainer.removeChild(alertContainer.firstChild);
+    }
+    if (!alerts.length) {
+      var none = document.createElement("p");
+      none.className = "loading";
+      none.textContent = "No alerts.";
+      alertContainer.appendChild(none);
+      return;
+    }
+    alerts.forEach(function (alertText) {
+      var item  = document.createElement("div");
+      item.className = "alert-item";
+
+      var icon  = document.createElement("span");
+      icon.className = "alert-item-icon";
+      icon.textContent = "⚠";
+
+      var msg   = document.createTextNode(alertText);
+
+      item.appendChild(icon);
+      item.appendChild(msg);
+      alertContainer.appendChild(item);
+    });
+  }
+
+})();
+</script>
+</body>
+</html>

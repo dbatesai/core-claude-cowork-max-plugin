@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CORE Dashboard</title>
+
+  <!-- Grid.js theme (before shared styles so shared overrides win) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/gridjs@6.1.1/dist/theme/mermaid.min.css">
+  <!-- Shared design tokens + components -->
+  <link rel="stylesheet" href="shared/styles.css">
+
+  <style>
+    /* ── Layout ─────────────────────────────────────────────────── */
+    .dashboard-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: var(--space-md);
+      padding: var(--space-md);
+      min-height: 100vh;
+      align-content: start;
+    }
+
+    @media (max-width: 900px) {
+      .dashboard-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .col-project { grid-column: 1; }
+    .col-risks   { grid-column: 2; }
+    .col-swarm   { grid-column: 3; }
+    .row-bottom  { grid-column: 1 / -1; }
+
+    @media (max-width: 900px) {
+      .col-project,
+      .col-risks,
+      .col-swarm,
+      .row-bottom { grid-column: 1; }
+    }
+
+    /* ── Header strip ──────────────────────────────────────────── */
+    .dashboard-header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: var(--space-sm) var(--space-md);
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .dashboard-header h1 {
+      font-size: var(--text-lg);
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.01em;
+    }
+
+    .core-mark {
+      font-size: var(--text-xs);
+      color: var(--text-muted);
+      font-family: var(--font-mono);
+    }
+
+    /* ── Card spacing ──────────────────────────────────────────── */
+    .card + .card { margin-top: var(--space-md); }
+
+    /* ── Meta rows (label / value pairs) ───────────────────────── */
+    .meta-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: var(--space-xs);
+    }
+
+    .meta-label {
+      font-size: var(--text-xs);
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+
+    .meta-value {
+      font-size: var(--text-sm);
+      color: var(--text-primary);
+    }
+
+    /* ── Big risk counter ───────────────────────────────────────── */
+    .big-count {
+      font-size: 40px;
+      font-weight: 700;
+      line-height: 1;
+      color: var(--core-amber);
+    }
+
+    .big-count.zero { color: var(--core-green); }
+
+    /* ── Moves list ─────────────────────────────────────────────── */
+    .moves-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+
+    .moves-list li {
+      display: flex;
+      align-items: flex-start;
+      gap: var(--space-sm);
+      padding: var(--space-xs) 0;
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .moves-list li:last-child { border-bottom: none; }
+
+    .moves-list-arrow {
+      color: var(--core-blue-light);
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    /* ── Connector health ───────────────────────────────────────── */
+    .connector-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+      padding: var(--space-xs) 0;
+      font-size: var(--text-sm);
+    }
+
+    /* ── Chart container ────────────────────────────────────────── */
+    .chart-wrap {
+      position: relative;
+      height: 160px;
+      margin-top: var(--space-sm);
+    }
+
+    /* ── Swarm section hidden state ─────────────────────────────── */
+    #swarm-section[data-active="false"] { display: none; }
+
+    /* ── GridJS dark-theme overrides ────────────────────────────── */
+    .gridjs-wrapper,
+    .gridjs-container,
+    table.gridjs-table {
+      background: transparent !important;
+    }
+
+    .gridjs-th,
+    .gridjs-td {
+      background: var(--bg-card) !important;
+      color: var(--text-primary) !important;
+      border-color: var(--border) !important;
+      font-size: var(--text-sm) !important;
+    }
+
+    .gridjs-th {
+      color: var(--text-secondary) !important;
+      font-weight: 600 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.06em !important;
+      font-size: var(--text-xs) !important;
+    }
+
+    .gridjs-tr:hover .gridjs-td {
+      background: var(--bg-surface) !important;
+    }
+
+    .gridjs-search input,
+    .gridjs-pagination {
+      background: var(--bg-surface) !important;
+      color: var(--text-primary) !important;
+      border-color: var(--border) !important;
+    }
+
+    .gridjs-empty {
+      color: var(--text-muted) !important;
+      font-style: italic;
+      font-size: var(--text-sm) !important;
+    }
+  </style>
+</head>
+<body>
+
+<div class="dashboard-grid">
+
+  <!-- ── Header ──────────────────────────────────────────────────── -->
+  <header class="dashboard-header">
+    <h1>CORE Dashboard</h1>
+    <span class="core-mark">cowork-max · live artifact</span>
+  </header>
+
+  <!-- ══════════════════════════════════════════════════════════════
+       COL 1 — Project info
+  ═══════════════════════════════════════════════════════════════════ -->
+  <div class="col-project">
+
+    <div class="card">
+      <p class="section-title">Project</p>
+      <p id="project-name" class="loading">loading…</p>
+    </div>
+
+    <div class="card">
+      <p class="section-title">State</p>
+      <p id="project-state" class="loading">loading…</p>
+    </div>
+
+    <div class="card">
+      <p class="section-title">Delivery Manager</p>
+      <p id="dm-name" class="loading">loading…</p>
+    </div>
+
+    <div class="card">
+      <div class="meta-row">
+        <span class="meta-label">Last Session</span>
+        <span id="last-session" class="meta-value loading">loading…</span>
+      </div>
+      <div class="meta-row">
+        <span class="meta-label">Vibe</span>
+        <span id="vibe-label" class="meta-value loading">loading…</span>
+      </div>
+    </div>
+
+    <!-- Connector status -->
+    <div class="card" id="connector-status">
+      <p class="section-title">Connectors</p>
+      <p class="loading" id="connector-loading">loading…</p>
+    </div>
+
+  </div><!-- /col-project -->
+
+  <!-- ══════════════════════════════════════════════════════════════
+       COL 2 — Risks + Moves
+  ═══════════════════════════════════════════════════════════════════ -->
+  <div class="col-risks">
+
+    <div class="card">
+      <p class="section-title">Open Risks</p>
+      <div id="active-risks" class="big-count loading">—</div>
+    </div>
+
+    <div class="card">
+      <p class="section-title">Next Moves</p>
+      <ul id="moves-preview" class="moves-list">
+        <li><span class="loading">loading…</span></li>
+      </ul>
+    </div>
+
+  </div><!-- /col-risks -->
+
+  <!-- ══════════════════════════════════════════════════════════════
+       COL 3 — Swarm activity + convergence chart
+  ═══════════════════════════════════════════════════════════════════ -->
+  <div class="col-swarm">
+
+    <!-- Hidden until DM sets data-active="true" -->
+    <div class="card" id="swarm-section" data-active="false">
+      <p class="section-title">Active Swarm</p>
+      <p class="loading" id="swarm-summary">No active swarm.</p>
+    </div>
+
+    <div class="card">
+      <p class="section-title">Convergence</p>
+      <div class="chart-wrap">
+        <canvas id="convergence-chart" role="img" aria-label="Convergence trajectory chart"></canvas>
+      </div>
+    </div>
+
+  </div><!-- /col-swarm -->
+
+  <!-- ══════════════════════════════════════════════════════════════
+       FULL-WIDTH BOTTOM — Persuasion log (GridJS)
+  ═══════════════════════════════════════════════════════════════════ -->
+  <section class="row-bottom card">
+    <p class="section-title">Persuasion Log</p>
+    <div id="persuasion-table"></div>
+  </section>
+
+</div><!-- /dashboard-grid -->
+
+<!-- ── CDN scripts ─────────────────────────────────────────────────── -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/gridjs@6.1.1/dist/gridjs.umd.js"></script>
+<!-- Shared helpers (CoreHelpers) -->
+<script src="shared/helpers.js"></script>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ── GridJS: empty persuasion log ─────────────────────────────── */
+  var persuasionGrid = new gridjs.Grid({
+    columns: [
+      { id: "agent",       name: "Agent"        },
+      { id: "changedFrom", name: "Changed From"  },
+      { id: "changedTo",   name: "Changed To"    },
+      { id: "trigger",     name: "Trigger"       },
+      { id: "phase",       name: "Phase"         },
+    ],
+    data: [],
+    sort: true,
+    search: true,
+    pagination: { limit: 10 },
+    language: {
+      noRecordsFound: "No persuasion events this session.",
+    },
+    style: {
+      container: { "font-family": "var(--font-sans)" },
+    },
+  }).render(document.getElementById("persuasion-table"));
+
+  /* ── Chart.js: empty convergence trajectory ───────────────────── */
+  var convergenceCtx = document.getElementById("convergence-chart").getContext("2d");
+  var convergenceChart = new Chart(convergenceCtx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "Convergence Score",
+          data: [],
+          borderColor: "#3b6fd4",
+          backgroundColor: "rgba(59,111,212,0.15)",
+          borderWidth: 2,
+          pointRadius: 3,
+          tension: 0.35,
+          fill: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: "#1f2937",
+          borderColor: "#374151",
+          borderWidth: 1,
+          titleColor: "#f1f5f9",
+          bodyColor: "#94a3b8",
+        },
+      },
+      scales: {
+        x: {
+          ticks: { color: "#64748b", font: { size: 11 } },
+          grid:  { color: "#374151" },
+        },
+        y: {
+          min: 0,
+          max: 1,
+          ticks: { color: "#64748b", font: { size: 11 } },
+          grid:  { color: "#374151" },
+        },
+      },
+    },
+  });
+
+  /* ── Expose update API on window.CORE.dashboard ──────────────── */
+  window.CORE = window.CORE || {};
+  window.CORE.dashboard = {
+    persuasionGrid: persuasionGrid,
+    convergenceChart: convergenceChart,
+
+    /**
+     * DM calls this (via update_artifact) to hydrate dashboard sections.
+     * Only keys present in `state` are applied; partial updates are safe.
+     *
+     * @param {object}   state
+     * @param {string}   [state.projectName]
+     * @param {string}   [state.projectState]
+     * @param {string}   [state.dmName]
+     * @param {number}   [state.activeRisks]
+     * @param {string}   [state.lastSession]      ISO date string
+     * @param {string}   [state.vibeLabel]
+     * @param {boolean}  [state.swarmActive]
+     * @param {string}   [state.swarmSummary]
+     * @param {string[]} [state.moves]             Up to 5 items
+     * @param {object[]} [state.persuasionRows]    [{agent,changedFrom,changedTo,trigger,phase}]
+     * @param {object}   [state.convergence]       {labels:string[], scores:number[]}
+     * @param {object[]} [state.connectors]        [{name:string, status:string}]
+     */
+    update: function (state) {
+      if (state.projectName !== undefined) {
+        setNodeText("project-name", state.projectName);
+      }
+      if (state.projectState !== undefined) {
+        setNodeText("project-state", state.projectState);
+      }
+      if (state.dmName !== undefined) {
+        setNodeText("dm-name", state.dmName);
+      }
+      if (state.activeRisks !== undefined) {
+        var riskEl = document.getElementById("active-risks");
+        riskEl.textContent = String(state.activeRisks);
+        riskEl.classList.remove("loading");
+        if (state.activeRisks === 0) {
+          riskEl.classList.add("zero");
+        } else {
+          riskEl.classList.remove("zero");
+        }
+      }
+      if (state.lastSession !== undefined) {
+        setNodeText("last-session", CoreHelpers.relativeDate(state.lastSession));
+      }
+      if (state.vibeLabel !== undefined) {
+        setNodeText("vibe-label", state.vibeLabel);
+      }
+      if (state.swarmActive !== undefined) {
+        var swarmSec = document.getElementById("swarm-section");
+        swarmSec.dataset.active = state.swarmActive ? "true" : "false";
+        if (state.swarmSummary !== undefined) {
+          setNodeText("swarm-summary", state.swarmSummary);
+        }
+      }
+      if (Array.isArray(state.moves)) {
+        var ul = document.getElementById("moves-preview");
+        while (ul.firstChild) {
+          ul.removeChild(ul.firstChild);
+        }
+        state.moves.slice(0, 5).forEach(function (moveText) {
+          var li   = document.createElement("li");
+          var arr  = document.createElement("span");
+          arr.className = "moves-list-arrow";
+          arr.textContent = "→";
+          var txt  = document.createTextNode(moveText);
+          li.appendChild(arr);
+          li.appendChild(txt);
+          ul.appendChild(li);
+        });
+      }
+      if (Array.isArray(state.persuasionRows)) {
+        persuasionGrid.updateConfig({
+          data: state.persuasionRows.map(function (r) {
+            return [r.agent, r.changedFrom, r.changedTo, r.trigger, r.phase];
+          }),
+        }).forceRender();
+      }
+      if (state.convergence) {
+        convergenceChart.data.labels            = state.convergence.labels  || [];
+        convergenceChart.data.datasets[0].data  = state.convergence.scores  || [];
+        convergenceChart.update();
+      }
+      if (Array.isArray(state.connectors)) {
+        renderConnectors(state.connectors);
+      }
+    },
+  };
+
+  /* ── Helpers ──────────────────────────────────────────────────── */
+
+  function setNodeText(id, value) {
+    var el = document.getElementById(id);
+    if (!el) { return; }
+    el.textContent = value;
+    el.classList.remove("loading");
+  }
+
+  function renderConnectors(connectors) {
+    var sec         = document.getElementById("connector-status");
+    var titleEl     = sec.querySelector(".section-title");
+    var loadingEl   = document.getElementById("connector-loading");
+
+    /* Remove loading placeholder if present */
+    if (loadingEl) {
+      sec.removeChild(loadingEl);
+    }
+
+    /* Remove any previously rendered connector rows */
+    var existing = sec.querySelectorAll(".connector-row");
+    existing.forEach(function (node) { sec.removeChild(node); });
+
+    connectors.forEach(function (c) {
+      var row   = document.createElement("div");
+      row.className = "connector-row";
+
+      var dot   = document.createElement("span");
+      dot.className = "status-dot";
+      if (c.status === "active") {
+        dot.classList.add("active");
+      } else if (c.status === "pending") {
+        dot.classList.add("pending");
+      } else {
+        dot.classList.add("inactive");
+      }
+
+      var label = document.createElement("span");
+      label.textContent = c.name || "unknown";
+      label.style.fontSize = "var(--text-sm)";
+
+      var badge = document.createElement("span");
+      if (c.status === "active") {
+        badge.className = "badge badge-green";
+      } else if (c.status === "pending") {
+        badge.className = "badge badge-amber";
+      } else {
+        badge.className = "badge badge-muted";
+      }
+      badge.textContent = c.status || "unknown";
+
+      row.appendChild(dot);
+      row.appendChild(label);
+      row.appendChild(badge);
+      sec.appendChild(row);
+    });
+
+    /* Keep titleEl in DOM — re-insert it first if needed */
+    if (titleEl && sec.firstChild !== titleEl) {
+      sec.insertBefore(titleEl, sec.firstChild);
+    }
+  }
+
+})();
+</script>
+</body>
+</html>

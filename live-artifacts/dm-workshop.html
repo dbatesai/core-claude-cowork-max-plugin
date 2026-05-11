@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DM Workshop</title>
+  <link rel="stylesheet" href="shared/styles.css">
+  <link rel="stylesheet" href="shared/workshop-animations.css">
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: var(--space-xl) var(--space-md);
+      background: var(--bg-deep);
+    }
+
+    /* Root container */
+    #dm-workshop {
+      width: 100%;
+      max-width: 680px;
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-lg);
+    }
+
+    /* DM name header */
+    .workshop-header {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-sm);
+    }
+
+    #dm-name-display {
+      font-size: var(--text-xl);
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: -0.02em;
+    }
+
+    .workshop-header-tag {
+      font-size: var(--text-xs);
+      color: var(--text-muted);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    /* Scene container */
+    #workshop-scene {
+      position: relative;
+      width: 100%;
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      min-height: 300px;
+      display: flex;
+      align-items: stretch;
+    }
+
+    /* Base scene image */
+    .workshop-base-img {
+      display: block;
+      width: 100%;
+      height: auto;
+      object-fit: cover;
+      position: relative;
+      z-index: 1;
+    }
+
+    /* Fallback: placeholder scene when SVG is absent */
+    .workshop-scene-placeholder {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-md);
+      padding: var(--space-xl);
+      background: linear-gradient(160deg, #1a2236 0%, #111827 100%);
+      min-height: 260px;
+    }
+
+    .scene-icon {
+      font-size: 56px;
+      line-height: 1;
+      opacity: 0.7;
+    }
+
+    .scene-ready-label {
+      font-size: var(--text-sm);
+      color: var(--text-muted);
+    }
+
+    /* Overlay layers — positioned absolute over the scene */
+    .overlay-layer {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2;
+    }
+
+    /* Lamp overlay states: lamp-0 (brightest) … lamp-4 (dimmest) */
+    #lamp-overlay.lamp-0 { opacity: 1.0; }
+    #lamp-overlay.lamp-1 { opacity: 0.85; }
+    #lamp-overlay.lamp-2 { opacity: 0.65; }
+    #lamp-overlay.lamp-3 { opacity: 0.40; }
+    #lamp-overlay.lamp-4 { opacity: 0.15; }
+
+    /* Hearth overlay states: hearth-0 (cold) … hearth-4 (roaring) */
+    #hearth-overlay.hearth-0 { opacity: 0; }
+    #hearth-overlay.hearth-1 { opacity: 0.3; }
+    #hearth-overlay.hearth-2 { opacity: 0.55; }
+    #hearth-overlay.hearth-3 { opacity: 0.8; }
+    #hearth-overlay.hearth-4 { opacity: 1.0; }
+
+    /* Sky overlay states */
+    #sky-overlay.sky-neutral  { opacity: 0.5; }
+    #sky-overlay.sky-morning  { opacity: 0.6; filter: hue-rotate(20deg); }
+    #sky-overlay.sky-clear    { opacity: 0.8; filter: brightness(1.1); }
+    #sky-overlay.sky-storm    { opacity: 0.9; filter: hue-rotate(200deg) brightness(0.7); }
+    #sky-overlay.sky-dawn     { opacity: 0.75; filter: hue-rotate(-20deg) brightness(1.15); }
+
+    /* Overlay image tiles */
+    .overlay-layer img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    /* Info panel below the scene */
+    .workshop-info {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-sm);
+    }
+
+    /* Project pulse line */
+    #project-pulse {
+      font-size: var(--text-sm);
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: var(--space-sm);
+    }
+
+    #project-pulse::before {
+      content: "";
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--core-green);
+      flex-shrink: 0;
+    }
+
+    /* Vibe display */
+    #vibe-display {
+      font-size: var(--text-xs);
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    /* Workspace shelf list */
+    .workspace-section {
+      margin-top: var(--space-sm);
+    }
+
+    .workspace-section-heading {
+      font-size: var(--text-xs);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: var(--space-sm);
+    }
+
+    #workspace-list {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      list-style: none;
+    }
+
+    .shelf-volume {
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 4px 10px;
+      font-size: var(--text-xs);
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .shelf-volume-icon {
+      font-size: 10px;
+      opacity: 0.6;
+    }
+
+    /* Loading state */
+    #workshop-loading {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: var(--space-sm);
+      padding: var(--space-xl);
+      color: var(--text-muted);
+      font-size: var(--text-sm);
+      font-style: italic;
+      min-height: 260px;
+    }
+
+    #workshop-loading.hidden { display: none; }
+
+    .loading-dot-row {
+      display: flex;
+      gap: 5px;
+    }
+
+    .loading-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--core-blue);
+      opacity: 0.4;
+      animation: dot-pulse 1.4s ease-in-out infinite;
+    }
+
+    .loading-dot:nth-child(2) { animation-delay: 0.2s; }
+    .loading-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes dot-pulse {
+      0%, 80%, 100% { opacity: 0.4; transform: scale(1); }
+      40%           { opacity: 1.0; transform: scale(1.3); }
+    }
+
+    /* Utility */
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <div id="dm-workshop">
+
+    <!-- DM name header -->
+    <div class="workshop-header">
+      <span id="dm-name-display">Your DM</span>
+      <span class="workshop-header-tag">Workshop</span>
+    </div>
+
+    <!-- Loading state (shown while MCP data is fetched) -->
+    <div id="workshop-loading" aria-live="polite">
+      <div class="loading-dot-row" role="status" aria-label="Workshop loading">
+        <div class="loading-dot"></div>
+        <div class="loading-dot"></div>
+        <div class="loading-dot"></div>
+      </div>
+      <span>Workshop loading…</span>
+    </div>
+
+    <!-- Workshop scene (hidden until data arrives) -->
+    <div id="workshop-scene" class="hidden" aria-label="DM workshop scene">
+
+      <!-- Base scene image -->
+      <img
+        src="workshop-assets/workshop-bg.svg"
+        alt="Workshop scene"
+        class="workshop-base-img"
+        onerror="this.style.display='none'; document.getElementById('scene-placeholder').style.display='flex';"
+      >
+
+      <!-- Fallback placeholder shown when workshop-bg.svg is absent -->
+      <div id="scene-placeholder" class="workshop-scene-placeholder" style="display:none;" aria-hidden="true">
+        <div class="scene-icon">&#127756;</div>
+        <span class="scene-ready-label">Workshop scene</span>
+      </div>
+
+      <!-- State overlay: lamp (brightness tracks session age) -->
+      <div id="lamp-overlay" class="overlay-layer lamp-2" aria-hidden="true">
+        <img src="workshop-assets/lamp-overlay.svg" alt="">
+      </div>
+
+      <!-- State overlay: hearth (burn intensity tracks swarm activity) -->
+      <div id="hearth-overlay" class="overlay-layer hearth-0" aria-hidden="true">
+        <img src="workshop-assets/hearth-overlay.svg" alt="">
+      </div>
+
+      <!-- State overlay: sky (window/sky frame tracks project state) -->
+      <div id="sky-overlay" class="overlay-layer sky-neutral" aria-hidden="true">
+        <img src="workshop-assets/sky-overlay.svg" alt="">
+      </div>
+
+    </div>
+
+    <!-- Info panel -->
+    <div class="workshop-info">
+      <div id="project-pulse">No active project</div>
+      <div id="vibe-display"></div>
+    </div>
+
+    <!-- Workspace shelf list -->
+    <div class="workspace-section">
+      <div class="workspace-section-heading">Workspaces</div>
+      <ul id="workspace-list" aria-label="Active workspaces">
+        <li class="shelf-volume">
+          <span class="shelf-volume-icon">&#128218;</span>
+          <span>Loading…</span>
+        </li>
+      </ul>
+    </div>
+
+  </div><!-- /#dm-workshop -->
+
+  <script src="shared/helpers.js"></script>
+  <script src="shared/workshop-states.js"></script>
+  <script>
+    (function () {
+      "use strict";
+
+      function qs(sel) { return document.querySelector(sel); }
+
+      // --- Build a single shelf-volume list item via DOM methods (safe, no innerHTML) ---
+      function makeShelfItem(label) {
+        var li   = document.createElement("li");
+        li.className = "shelf-volume";
+        var icon = document.createElement("span");
+        icon.className = "shelf-volume-icon";
+        icon.textContent = "\u{1F4DA}"; // book emoji
+        var text = document.createElement("span");
+        text.textContent = label;
+        li.appendChild(icon);
+        li.appendChild(text);
+        return li;
+      }
+
+      // --- Render workspace shelf volumes ---
+      function renderWorkspaces(workshopState) {
+        var list = qs("#workspace-list");
+        if (!list) return;
+
+        // Clear existing items
+        while (list.firstChild) {
+          list.removeChild(list.firstChild);
+        }
+
+        var count = (workshopState && workshopState.workspace_count) || 0;
+        var names = (workshopState && workshopState.workspace_names) || [];
+
+        if (count === 0 && names.length === 0) {
+          list.appendChild(makeShelfItem("No workspaces"));
+          return;
+        }
+
+        if (names.length > 0) {
+          names.forEach(function (name) {
+            list.appendChild(makeShelfItem(name));
+          });
+        } else {
+          for (var i = 0; i < count; i++) {
+            list.appendChild(makeShelfItem("Workspace " + (i + 1)));
+          }
+        }
+      }
+
+      // --- Apply resolved CSS classes to overlay elements ---
+      function applyOverlayClasses(classes) {
+        var lampEl   = qs("#lamp-overlay");
+        var hearthEl = qs("#hearth-overlay");
+        var skyEl    = qs("#sky-overlay");
+
+        if (lampEl)   lampEl.className   = "overlay-layer " + classes.lamp;
+        if (hearthEl) hearthEl.className = "overlay-layer " + classes.hearth;
+        if (skyEl)    skyEl.className    = "overlay-layer " + classes.sky;
+      }
+
+      // --- Static placeholder for snapshot/offline mode ---
+      function applySnapshotState() {
+        var dmName       = qs("#dm-name-display");
+        var projectPulse = qs("#project-pulse");
+        var vibeDisplay  = qs("#vibe-display");
+
+        if (dmName)       dmName.textContent       = "Your DM";
+        if (projectPulse) projectPulse.textContent = "No active project — ready";
+        if (vibeDisplay)  vibeDisplay.textContent  = "";
+
+        var list = qs("#workspace-list");
+        if (list) {
+          while (list.firstChild) { list.removeChild(list.firstChild); }
+          list.appendChild(makeShelfItem("Snapshot mode"));
+        }
+
+        applyOverlayClasses(WorkshopStates.resolveClasses(null));
+      }
+
+      // --- Update DOM from live workshop state ---
+      function applyWorkshopState(workshopState) {
+        // DM name — emergent, read from MCP data, never hardcoded
+        var dmName = qs("#dm-name-display");
+        if (dmName) {
+          dmName.textContent = WorkshopStates.dmDisplayName(workshopState);
+        }
+
+        // Overlay classes driven by three state axes
+        applyOverlayClasses(WorkshopStates.resolveClasses(workshopState));
+
+        // Project pulse: "project_name — project_state_summary"
+        var projectPulse = qs("#project-pulse");
+        if (projectPulse) {
+          var projectName  = (workshopState && workshopState.project_name)         || "Project";
+          var projectState = (workshopState && workshopState.project_state_summary) || "active";
+          projectPulse.textContent = projectName + " — " + projectState;
+        }
+
+        // Vibe label (small, subtle)
+        var vibeDisplay = qs("#vibe-display");
+        if (vibeDisplay) {
+          vibeDisplay.textContent = (workshopState && workshopState.vibe_label) || "";
+        }
+
+        // Workspace shelf volumes
+        renderWorkspaces(workshopState);
+      }
+
+      // --- Reveal scene, hide loading indicator ---
+      function revealScene() {
+        var loading = qs("#workshop-loading");
+        var scene   = qs("#workshop-scene");
+        if (loading) loading.classList.add("hidden");
+        if (scene)   scene.classList.remove("hidden");
+      }
+
+      // --- Bootstrap ---
+      async function init() {
+        var workshopState = await CoreHelpers.tools.readWorkshopState();
+
+        if (!workshopState) {
+          // MCP unavailable — offline/snapshot mode
+          applySnapshotState();
+        } else {
+          applyWorkshopState(workshopState);
+        }
+
+        revealScene();
+      }
+
+      init();
+    }());
+  </script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+/* CORE Cowork Max — DM Workshop CSS animations */
+
+/* Smoke curl (hearth, chimney) */
+@keyframes smoke-curl {
+  0%   { opacity: 0.8; transform: translateY(0) scaleX(1); }
+  50%  { opacity: 0.4; transform: translateY(-8px) scaleX(1.2) rotate(5deg); }
+  100% { opacity: 0; transform: translateY(-20px) scaleX(0.8) rotate(-5deg); }
+}
+
+.smoke-particle {
+  animation: smoke-curl 2.4s ease-out infinite;
+  transform-origin: bottom center;
+}
+.smoke-particle:nth-child(2) { animation-delay: 0.8s; }
+.smoke-particle:nth-child(3) { animation-delay: 1.6s; }
+
+/* Lamp flicker (subtle, calming — not distracting) */
+@keyframes lamp-flicker {
+  0%   { opacity: 1.0; }
+  92%  { opacity: 1.0; }
+  93%  { opacity: 0.85; }
+  94%  { opacity: 1.0; }
+  97%  { opacity: 0.9; }
+  100% { opacity: 1.0; }
+}
+
+.lamp-glow {
+  animation: lamp-flicker 4s ease-in-out infinite;
+}
+
+/* Lamp off: no flicker, dimmed */
+.lamp-4 .lamp-glow {
+  animation: none;
+  opacity: 0.2;
+}
+
+/* Hearth glow pulse (active swarm state) */
+@keyframes hearth-glow {
+  0%   { opacity: 0.6; }
+  50%  { opacity: 1.0; }
+  100% { opacity: 0.6; }
+}
+
+.hearth-3 .hearth-light,
+.hearth-4 .hearth-light {
+  animation: hearth-glow 1.8s ease-in-out infinite;
+}
+
+/* Sky transition (smooth state changes) */
+.sky-layer {
+  transition: opacity 1.5s ease-in-out;
+}
+
+/* Shelf volume appears with a subtle grow when workspace is added */
+@keyframes shelf-appear {
+  from { transform: scaleY(0); transform-origin: bottom; opacity: 0; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+
+.shelf-volume.new {
+  animation: shelf-appear 0.4s ease-out forwards;
+}
+
+/* Overall workshop entrance */
+@keyframes workshop-enter {
+  from { opacity: 0; transform: scale(0.98); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+#dm-workshop {
+  animation: workshop-enter 0.5s ease-out;
+}
