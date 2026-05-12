@@ -301,7 +301,7 @@
     <!-- Info panel -->
     <div class="workshop-info">
       <div id="project-pulse">No active project</div>
-      <div id="vibe-display"></div>
+      <div id="vibe-display" title="Latest vibe across all projects — vibe entries are not workspace-scoped yet (Finding 7)."></div>
     </div>
 
     <!-- Workspace shelf list -->
@@ -417,10 +417,13 @@
           projectPulse.textContent = projectName + " — " + projectState;
         }
 
-        // Vibe label (small, subtle)
+        // Vibe label (small, subtle). Qualified as "any project" because vibe entries
+        // are a single global log without workspace attribution (Finding 7). Drop the
+        // qualifier once workspace_id is added to append_vibe_log + read_workshop_state.
         var vibeDisplay = qs("#vibe-display");
         if (vibeDisplay) {
-          vibeDisplay.textContent = (workshopState && workshopState.vibe_label) || "";
+          var rawVibe = (workshopState && workshopState.vibe_label) || "";
+          vibeDisplay.textContent = rawVibe ? "Latest vibe (any project) — " + rawVibe : "";
         }
 
         // Workspace shelf volumes

@@ -39,6 +39,33 @@ Use these to determine which row an artifact belongs to before writing. If an ar
 
 ---
 
+## Cowork capability-driven write routing
+
+**When does this apply.** This subsection governs `~/.core/` writes only when the session is in Cowork (`CLAUDE_CODE_IS_COWORK == "1"`). On Claude Code CLI and other non-Cowork harnesses, the canonical 7-rule sheet above is sufficient — `~/.core/` is a normal filesystem path and direct Write/Edit works. Read `protocols/startup.md` §"Phase 0.5: Capability Level Resolution" for how `core_capability_level` gets set.
+
+**Why this subsection exists.** Cowork's folder-scoped file-tool policy classifies `~/.core/` as application-internal and blocks Write/Edit access (empirically confirmed iteration-1 F1). The bundled MCP server runs host-side and is unblocked. When the MCP server is live (capability level 1), all `~/.core/` writes route through its `mcp__core__*` write tools. When the MCP server is unavailable (L2/L3), `~/.core/` writes cannot complete in the session — escalate honestly to the user; do not silently retry Write/Edit (the empirical fallback path that does not exist).
+
+**Routing table — L1 mapping for the `~/.core/` write surfaces:**
+
+| `~/.core/` surface | At `core_capability_level == "L1"` use MCP tool | At `"direct"` use | At `"L2"` / `"L3"` |
+|---|---|---|---|
+| `~/.core/index.json` (register a workspace) | `mcp__core__register_workspace({workspace_id, name?, path?, last_active?, delivery_risk?})` | Write/Edit | escalate |
+| `~/.core/index.json` (touch `last_active`) | `mcp__core__update_workspace_last_active({workspace_id, timestamp?})` | Write/Edit | escalate |
+| `~/.core/index.json` (remove a workspace) | `mcp__core__unregister_workspace({workspace_id})` | Write/Edit | escalate |
+| `~/.core/workspaces/<id>/workspace.json` | `mcp__core__write_workspace_manifest({workspace_id, manifest})` | Write/Edit | escalate |
+| `~/.core/workspaces/<id>/swarm-narrative.md` | `mcp__core__write_swarm_narrative({workspace_id, content, append?})` | Write/Edit | escalate |
+| `~/.core/dm-profile.md` (append a bullet to a section) | `mcp__core__append_dm_profile_entry({section, entry})` | Write/Edit | escalate |
+| `~/.core/dm-profile.md` (replace a full section) | `mcp__core__update_dm_profile_section({section, content})` | Write/Edit | escalate |
+| `~/.core/vibes/vibe-log.md` (append entry) | `mcp__core__append_vibe_log({date, vibe, label?, ascii_art?})` | Write/Edit | escalate |
+
+**Failure posture.** If an MCP write call fails (tool returns an error, server unreachable, etc.) in a Cowork+L1 session: emit a one-line user-visible warning naming the tool, the surface that was supposed to receive the write, and the error. **Do not silently retry Write/Edit** — F1 empirically blocks Write/Edit on `~/.core/` in any Cowork session regardless of which tool the DM uses. The user-visible warning is the failure boundary; the recovery action is the user's call (re-probe with `CORE_CAPABILITY_REPROBE=1`, restart Cowork to reload MCP, file a ticket).
+
+**Audit trail.** Every successful MCP write is logged by the server to `~/.core/mcp-write-log.md`. The DM does not need to write to that log; the MCP server handles it.
+
+**Subsection is structurally relocation-eligible.** This subsection sits outside the canonical 7-rule sheet by design. If the DC-39 second `/core` lands option (e) (enriched hook protocol routing write surfaces at the hook layer), this entire subsection becomes the migration unit — the canonical 7-rule sheet is unaffected. Re-decision trigger preserved per DC-41.
+
+---
+
 ## Pre-Write Declaration (PWD)
 
 **Before every non-exempt Write/Edit/MultiEdit/NotebookEdit call**, emit one line in user-visible chat:

@@ -7,6 +7,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.1] — 2026-05-11
+
+Iteration-2 follow-up release. Addresses the two new findings from the
+iteration-2 Cowork empirical test (F6 section parser, F7 vibe label) and applies
+the DC-41 `/core` adversarial-review verdict (A-REVISED) for skill-protocol
+write routing.
+
+### Fixed
+
+- **Section parser §-prefix support (Finding 6 from Cowork iteration-2 test).**
+  `mcp-server-node/server.mjs` `extractSection()`, `countOpenRisks()`, and
+  `read_workshop_state` inline regexes for `project_name` +
+  `project_state_summary` now accept the CORE PROJECT.md convention `## §State`
+  alongside plain `## State`. Same edit also fixed a multiline-`$` truncation
+  bug that would have appeared as the next iteration finding once §-prefix
+  matching landed.
+- **Cosmetic — vibe display label rename (Finding 7(p) from Cowork iteration-2
+  test).** `live-artifacts/dm-workshop.html` now renders the vibe as
+  `"Latest vibe (any project) — <label>"` with a `title` attribute so the
+  global-scope reality is honest. The schema-level fix (option n —
+  `workspace_id` attribution on vibe entries) is deferred to the next vibe-log
+  refactor.
+
+### Changed
+
+- **Skill protocol — Cowork capability-driven write routing (DC-41).** The
+  bundled CORE skill (`skills/core/protocols/`) now routes `~/.core/` writes
+  through the bundled MCP server's `mcp__core__*` write tools when running in
+  Cowork at capability level 1 (per `~/.core/capability.json`). At L2/L3 or
+  non-Cowork sessions, behavior is unchanged.
+  - `protocols/startup.md` gains a "Phase 0.5: Capability Level Resolution"
+    section that reads `~/.core/capability.json` (defaults to L3 if missing)
+    and resolves `core_capability_level` for the session. Phases 2 and 3B
+    consume the resolved level for `~/.core/` writes.
+  - `protocols/data-storage.md` gains a "Cowork capability-driven write
+    routing" subsection (canonical 7-rule sheet untouched) with the L1
+    → `mcp__core__*` mapping for the 8 routed surfaces (`index.json`
+    register/touch/remove, workspace manifest, swarm narrative, dm-profile
+    append/replace, vibe-log).
+  - `skills/vibecheck/SKILL.md` Step 4 routes `~/.core/vibes/vibe-log.md`
+    writes through `mcp__core__append_vibe_log` at L1.
+  - **Failure posture:** no silent fallback to Write/Edit on `~/.core/` writes
+    in Cowork (empirically blocked per iteration-1 F1); escalate user-visibly
+    with a one-line warning naming the tool and surface.
+  - Subsection is structurally relocation-eligible if DC-39 (e) closes
+    pro-hook-layer.
+- **Bundled skill snapshots refreshed** (`skills/CHECKSUMS.txt` updated) to
+  pick up the protocol + vibecheck changes.
+
+### Bumped
+
+- Plugin `version` 1.1.0 → 1.1.1.
+- MCP server `SERVER_VERSION` 1.1.0 → 1.1.1.
+
+---
+
 ## [1.1.0] — 2026-05-11
 
 Iteration-2 release. Addresses four of the five findings from the iteration-1

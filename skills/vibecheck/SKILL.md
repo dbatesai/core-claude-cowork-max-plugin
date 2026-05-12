@@ -94,6 +94,11 @@ Find the shape that fits *this* session. Don't reach for a template.
 
 Append the entry to `~/.core/vibes/vibe-log.md`. Create the file and the `~/.core/vibes/` directory if they don't exist.
 
+**Routing per `core_capability_level`** (set in `protocols/startup.md` §"Phase 0.5: Capability Level Resolution" when running inside `/core` — falls through to `"direct"` if vibecheck is invoked standalone outside a `/core` session):
+- `"L1"` (Cowork + MCP live) → call `mcp__core__append_vibe_log({date: "<YYYY-MM-DD>", vibe: "<the 1–2 sentence vibe>", label: "<workspace name or 'general'>", ascii_art: "<the ASCII block>"})`. The MCP server writes the entry to the top of `~/.core/vibes/vibe-log.md` host-side.
+- `"direct"` (Claude Code CLI) → Use the Write tool to prepend the entry to `~/.core/vibes/vibe-log.md` using the log format below. Create the directory and file if missing.
+- `"L2"` / `"L3"` (Cowork without MCP) → Escalate user-visibly: print the vibe entry to the terminal (ASCII + label + one-thing-that-mattered) and tell the user `~/.core/vibes/vibe-log.md` could not be updated this session because the MCP write surface is unavailable. Do not silently retry direct Write/Edit (empirically blocked by Cowork policy per iteration-1 F1).
+
 **Log format:**
 
 ```markdown

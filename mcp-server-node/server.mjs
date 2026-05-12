@@ -11,7 +11,7 @@ import readline from "node:readline";
 
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_NAME = "core";
-const SERVER_VERSION = "1.1.0";
+const SERVER_VERSION = "1.1.1";
 const CORE_DATA_DIR = process.env.CORE_DATA_DIR || join(homedir(), ".core");
 
 // --- JSON-RPC plumbing (stderr-only logging; stdout reserved for responses) ---
@@ -66,7 +66,10 @@ function resolveWorkspacePath(workspaceId) {
 function extractSection(markdown, sectionName) {
   if (!markdown) return "";
   const escaped = sectionName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`^## ${escaped}\\s*\\n([\\s\\S]*?)(?=^## |$)`, "m");
+  // §? handles the CORE PROJECT.md convention "## §State" alongside plain "## State".
+  // No `m` flag: `\n## ` and `$` give true end-of-section markers — `m`-mode `$` matched
+  // every newline and truncated section content to the first line.
+  const re = new RegExp(`(?:^|\\n)## §?\\s*${escaped}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`);
   const m = markdown.match(re);
   return m ? m[1].trim() : "";
 }
@@ -361,7 +364,7 @@ function tool_read_vibe_log(args) {
 
 function countOpenRisks(content) {
   if (!content) return 0;
-  const m = content.match(/^## Decisions & Risks[\s\S]*?\n([\s\S]*?)(?=^## |$)/m);
+  const m = content.match(/(?:^|\n)## §?\s*Decisions & Risks\s*\n([\s\S]*?)(?=\n## |$)/);
   if (!m) return 0;
   return m[1].split("\n").filter((ln) => ln.trim().startsWith("| R-") || ln.trim().startsWith("| DC-")).length;
 }
@@ -426,9 +429,9 @@ function tool_read_workshop_state(args) {
   if (wsPath) {
     const projectMd = readText(join(wsPath, "PROJECT.md"));
     if (projectMd) {
-      const whatMatch = projectMd.match(/^## What & Why\s*\n+(.+)/m);
+      const whatMatch = projectMd.match(/^## §?\s*What & Why\s*\n+(.+)/m);
       if (whatMatch) projectName = whatMatch[1].trim().replace(/^#+/, "").trim();
-      const stateMatch = projectMd.match(/^## State\s*\n+[-*]\s*\*\*(.+?)\*\*/m);
+      const stateMatch = projectMd.match(/^## §?\s*State\s*\n+[-*]\s*\*\*(.+?)\*\*/m);
       if (stateMatch) stateSummary = stateMatch[1].trim();
       activeRiskCount = countOpenRisks(projectMd);
     }

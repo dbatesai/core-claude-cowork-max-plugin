@@ -15,6 +15,25 @@ Run these checks on every startup. Skip creation steps if artifacts already exis
 
 ---
 
+## Phase 0.5: Capability Level Resolution
+
+When running inside a sandboxed harness (Cowork), `~/.core/` writes via Write/Edit may be blocked by the harness's folder-scope policy. Resolve the session's write capability before any phase that writes to `~/.core/`.
+
+1. Read `~/.core/capability.json`. If the file does not exist, treat as `{ "level": 3 }` (chat-only — no host writes).
+2. Read environment variable `CLAUDE_CODE_IS_COWORK`. If unset → not Cowork; capability resolution is informational only (Write/Edit works on Claude Code CLI regardless of level).
+3. Persist `core_capability_level` (one of `"L1"`, `"L2"`, `"L3"`, `"direct"`) as a session-local value for the rest of the session. Do not re-probe mid-session; capability does not flip during a session.
+
+| `CLAUDE_CODE_IS_COWORK` | `capability.json.level` | `core_capability_level` | What this means |
+|---|---|---|---|
+| `"1"` | `1` | `"L1"` | Cowork + MCP write tools live. Route `~/.core/` writes through `mcp__core__*` write tools. |
+| `"1"` | `2` | `"L2"` | Cowork without MCP. Folder-scoped file tool cannot reach `~/.core/`. Escalate user-visibly on `~/.core/` write attempts; do NOT silently retry Write/Edit (empirically fails per F1). |
+| `"1"` | `3` (or missing) | `"L3"` | Cowork with no plugin runtime. Same escalation as L2. |
+| unset | (any) | `"direct"` | Claude Code CLI (or other non-Cowork harness). Use Write/Edit as today. |
+
+See `data-storage.md` §"Cowork capability-driven write routing" for the L1 → MCP-tool mapping that governs which write tool to use for each `~/.core/` surface.
+
+---
+
 ## Phase 1: Load Global Identity
 
 1. Read `~/.core/dm-profile.md` in full. This is cross-project only — personality, user relationship patterns, portfolio observations.
@@ -34,7 +53,10 @@ Determine which workspace this session belongs to. Resolve deterministically whe
 4. Multiple workspaces could apply. Sort by `last_active` descending. Ask: *"Last session was on **[workspace name]**. Continuing there, or switching to [other workspace(s)]?"* → Phase 3A after confirmation.
 5. No match, no workspaces → Phase 3B (New Workspace).
 
-After resolution: update `last_active` in `index.json`.
+After resolution: update `last_active` in `index.json`. **Routing per `core_capability_level`** (set in Phase 0.5):
+- `"L1"` → call `mcp__core__update_workspace_last_active({workspace_id, timestamp})`.
+- `"direct"` → Write/Edit `~/.core/index.json` as today.
+- `"L2"` / `"L3"` → escalate: surface a one-line warning to the user explaining that workspace `last_active` cannot be updated in this session (capability level prevents `~/.core/` writes) and continue without the update. Do not silently retry Write/Edit.
 
 **Workspace layer separation:** Project synthesis lives in the project folder (`<project>/PROJECT.md`). Workspace operational meta lives at `~/.core/workspaces/<id>/`. The `workspace.json` in the project folder is a pointer; the full manifest is at `~/.core/workspaces/<id>/workspace.json`.
 
@@ -65,7 +87,7 @@ After resolution: update `last_active` in `index.json`.
    - **§Decisions & Risks** — initial constraints and known risks from the interview, dated.
    - **§Notes** — architectural principles, constraints, or context that doesn't fit elsewhere.
 3. Optionally create `<project>/inbox.md` if the user expects external-source pulls.
-4. Create `<project>/workspace.json` pointer:
+4. Create `<project>/workspace.json` pointer (project-folder write; no capability routing needed — Cowork's folder-scoped file tool reaches the project folder):
    ```json
    {
      "workspace_id": "<generated-id>",
@@ -74,9 +96,18 @@ After resolution: update `last_active` in `index.json`.
      "data_path": "~/.core/workspaces/<workspace-id>/"
    }
    ```
-5. Create the full manifest at `~/.core/workspaces/<workspace-id>/workspace.json` (see `schemas/workspace.md` for required fields).
-6. Create `~/.core/workspaces/<workspace-id>/swarm-narrative.md` (empty — populated after first swarm).
-7. Register in `~/.core/index.json`.
+5. Create the full manifest at `~/.core/workspaces/<workspace-id>/workspace.json` (see `schemas/workspace.md` for required fields). **Routing per `core_capability_level`:**
+   - `"L1"` → call `mcp__core__write_workspace_manifest({workspace_id, manifest})`.
+   - `"direct"` → Write the file directly.
+   - `"L2"` / `"L3"` → escalate user-visibly; the workspace scaffold cannot complete in this session.
+6. Create `~/.core/workspaces/<workspace-id>/swarm-narrative.md` (empty — populated after first swarm). **Routing per `core_capability_level`:**
+   - `"L1"` → call `mcp__core__write_swarm_narrative({workspace_id, content: "", append: false})`.
+   - `"direct"` → Write the file directly.
+   - `"L2"` / `"L3"` → escalate.
+7. Register in `~/.core/index.json`. **Routing per `core_capability_level`:**
+   - `"L1"` → call `mcp__core__register_workspace({workspace_id, name, path, last_active})`.
+   - `"direct"` → Read `index.json`, append the new entry, Write it back.
+   - `"L2"` / `"L3"` → escalate.
 8. **Do not scaffold** `raid-log.md`, `decision-log.md`, `next-session.md`, or `handoffs/` under `~/.core/workspaces/<id>/`. These no longer exist as separate files — their content is §State, §Moves, §Decisions & Risks in `PROJECT.md`, and project-folder `handoffs/`.
 
 ---
