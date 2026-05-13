@@ -14,6 +14,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `live-artifacts/dm-workshop.html` renamed to `live-artifacts/core-dashboard.html`. Existing Cowork conversations referencing the old artifact path must re-open the CORE Dashboard.
 - MCP tool `read_workshop_state` renamed to `read_dashboard_state`.
 
+### Added — v1.2.x Observatory feature (Phase 1)
+
+- **`update_swarm_status` MCP tool** — patch-semantic write that lets the DM track active swarm state in workspace manifests during execution. Status lifecycle: `idle | running | halted | complete`. Lifecycle timestamps (`started_at`, `completed_at`) reset on fresh swarm starts to avoid stale state when a workspace is reused across multiple swarms. Tracked at `~/.core/workspaces/<id>/workspace.json` `current_swarm`.
+
+- **`read_dashboard_state` extended** — now returns `workspaces_with_swarm`: a list of all workspaces with their current swarm status, sorted by attention model (halted → running → complete → idle). Borrowed from Anthropic's Agent View attention pattern.
+
+- **`swarm_artifact_id` workspace manifest field** — top-level reference to the Cowork Swarm Live View artifact. Persists across multiple swarm runs in the same workspace; survives Cowork app restart (Q8 CROSS-RESTART-PASS).
+
+- **CORE Dashboard Observatory Panel** — new section in `live-artifacts/core-dashboard.html` below the workspace shelf. Shows all active swarms across workspaces, halted-first. Empty state: "No active swarms." Workspace shelf sort also updated to surface halted/running workspaces first when swarm data is present.
+
+- **Swarm Live View data API scaffolding** — `window.CORE.swarmView.update()` accepts two new fields: `agentHierarchy: [{name, role, parent}]` (DM-rooted agent tree) and `phaseEvents: [{time, event}]` (milestone log, last 20 retained, rendered newest-first). Visual design intentionally deferred to a Phase 2 UI Excellence swarm; current rendering is plain text in `<pre>` placeholders.
+
+- **Execution protocol — Swarm State Tracking section** — `~/.claude/skills/core/protocols/execution.md` now documents the six moments where the DM calls `update_swarm_status` (Phase 1 spawn, phase transitions, halt/resume, accept, graceful halt) plus a Cowork-only sub-protocol for the Swarm Live View artifact lifecycle (create at Phase 0, update at transitions, finalize at close).
+
+- **Workspace schema documented** — `~/.claude/skills/core/schemas/workspace.md` now has full documentation for the pointer/manifest two-file pattern, including the new `current_swarm` field and `swarm_artifact_id`. References the MCP tools by their dispatch keys (`update_swarm_status`, `read_dashboard_state`) — not the internal JS function names.
+
+#### Phase 2 (deferred)
+
+Visual design for CORE Dashboard Observatory Panel + Swarm Live View hierarchy/phase-log rendering awaits the UI Excellence swarm output at `outputs/2026-05-12/core-dashboard-ui-excellence-swarm-briefing.md`. Phase 1 ships the data path with placeholder rendering; Phase 2 ships the designed treatment.
+
 ---
 
 ## [1.1.3] — 2026-05-12
