@@ -199,6 +199,23 @@
       align-items: center;
       gap: var(--space-sm);
     }
+
+    /* ── Scaffold panels (data API only; UI Excellence swarm owns visual design) */
+    .scaffold-section { margin-top: 1rem; }
+    .scaffold-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 0.4rem;
+    }
+    .scaffold-pre {
+      font-family: var(--font-mono, monospace);
+      font-size: 0.8rem;
+      color: var(--text-secondary);
+      white-space: pre-wrap;
+      margin: 0;
+    }
   </style>
 </head>
 <body>
@@ -253,6 +270,22 @@
         <p class="section-title">Monitor Alerts</p>
         <div id="monitor-alerts">
           <p class="loading">No alerts.</p>
+        </div>
+      </div>
+
+      <!-- Hierarchy Panel — data API only; visual design pending UI Excellence swarm -->
+      <div class="card" style="margin-top:var(--space-md);">
+        <p class="section-title">Hierarchy</p>
+        <div class="scaffold-section">
+          <pre id="hierarchy-placeholder" class="scaffold-pre">—</pre>
+        </div>
+      </div>
+
+      <!-- Phase Milestone Log — data API only; visual design pending UI Excellence swarm -->
+      <div class="card" style="margin-top:var(--space-md);">
+        <p class="section-title">Phase Log</p>
+        <div class="scaffold-section">
+          <pre id="phase-events-placeholder" class="scaffold-pre">—</pre>
         </div>
       </div>
     </div>
@@ -439,6 +472,29 @@
         convergenceChart.data.labels           = state.convergence.labels  || [];
         convergenceChart.data.datasets[0].data = state.convergence.scores  || [];
         convergenceChart.update();
+      }
+
+      // agentHierarchy: [{name, role, parent}] — DM is implicit root; render agents as flat children.
+      if (Array.isArray(state.agentHierarchy)) {
+        window.CORE.swarmView._lastHierarchy = state.agentHierarchy;
+        var hEl = document.getElementById("hierarchy-placeholder");
+        if (hEl) {
+          hEl.textContent = "DM (orchestrator)\n" +
+            state.agentHierarchy.map(function (a) {
+              return "├─ " + a.name + " (" + (a.role || "agent") + ")";
+            }).join("\n");
+        }
+      }
+
+      // phaseEvents: [{time, event}] — appended chronologically; last 20 retained; rendered newest-first.
+      if (Array.isArray(state.phaseEvents) && state.phaseEvents.length > 0) {
+        window.CORE.swarmView._phaseEvents = (window.CORE.swarmView._phaseEvents || [])
+          .concat(state.phaseEvents).slice(-20);
+        var pEl = document.getElementById("phase-events-placeholder");
+        if (pEl) {
+          pEl.textContent = window.CORE.swarmView._phaseEvents.slice().reverse()
+            .map(function (e) { return e.time + " — " + e.event; }).join("\n");
+        }
       }
     },
   };
