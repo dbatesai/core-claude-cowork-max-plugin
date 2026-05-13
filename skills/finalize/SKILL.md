@@ -12,6 +12,25 @@ You are performing the DM session closing sequence. This is not optional cleanup
 
 ---
 
+## Step 0: Harness Resolution
+
+Several later steps write to host-wide paths (`~/.claude/skills/`, `~/.claude/projects/<id>/memory/`, `~/.core/dream-cycles/`, host-side `core-skill/` mirror) that Cowork's folder-scoped file tool cannot reach. Detect the harness here so blocked steps surface explicitly in the handoff rather than failing silently.
+
+**Detection** (same precedent as `/core` startup Phase 0.5, DC-41):
+
+1. Read environment variable `CLAUDE_CODE_IS_COWORK`.
+   - **Unset** → `core_capability_level = "direct"` (Claude Code CLI or any non-Cowork harness). All steps proceed normally; skip to Step 1.
+2. **Set** → read `~/.core/capability.json` (treat as `{ "level": 3 }` if absent).
+   - `level: 1` → `"L1"` (Cowork + MCP write tools live).
+   - `level: 2` → `"L2"` (Cowork without MCP).
+   - `level: 3` (or missing) → `"L3"` (Cowork with no plugin runtime).
+
+3. Initialize an empty `blocked_steps` list. Each later step appends an entry `(step name, reason, pending content)` when it cannot complete in the current harness. The list is surfaced in the handoff (Step 2) and the closing declaration. **Do not silently skip a blocked step** — capture what would have been written so the next compatible-harness session can pick it up.
+
+The point of explicit detection is honesty: the next session must be able to see what didn't get done and why, not infer it from silence. This step sets the precedent any future harness-aware finalize work (e.g., DC-42's eventual prune step) should reuse.
+
+---
+
 ## Step 1: Fresh-Eyes Review
 
 Before writing anything, re-read the session from the top with fresh eyes and re-synthesize the context with your understanding of the operator intent, goal, and measure of success. Ask:
@@ -64,15 +83,37 @@ Use the naming convention: `handoffs/handoff-<YYYY-MM-DD>.md` (use today's date)
 [Specific recommended first action for the next session]
 ```
 
+**If `blocked_steps` is non-empty** (Step 0 set up the list; Steps 3, 4, 4.5, 6 may have appended), add this section to the handoff:
+
+```markdown
+## Steps That Could Not Complete
+
+The following finalize steps could not complete in this session's harness. The next compatible-harness session should pick them up.
+
+- **<step name>:** <reason>. Pending content:
+  <what would have been written if the step had been able to complete>
+```
+
+Capture the pending content concretely (the actual log entry text, the actual memory file edits, the list of skill files needing sync). Vague "pending memory updates" doesn't survive the next bootstrap.
+
 ---
 
 ## Step 3: Update Improvement Log
 
 If any changes were made to SKILL.md files or skill protocols this session:
 
-1. Open `~/.claude/skills/core/IMPROVEMENT_LOG.md` (or the relevant skill's improvement log)
-2. Add an entry with date, what changed, and why
-3. Be specific — future sessions should be able to reconstruct the reasoning
+1. **Identify the canonical log location.**
+   - For CORE skill / framework work: `<project>/IMPROVEMENT_LOG.md` (per `CLAUDE.md`; lives in project root, not skill dir).
+   - For other skills that maintain their own log: `~/.claude/skills/<skill-name>/IMPROVEMENT_LOG.md`.
+
+2. **Routing by `core_capability_level` (set in Step 0):**
+
+   | Level | Action |
+   |---|---|
+   | `"direct"` | Edit the canonical log file directly. |
+   | `"L1"` / `"L2"` / `"L3"` | Project-root logs (`<project>/IMPROVEMENT_LOG.md`) work — the project folder is connected in Cowork. **Host-wide logs** (`~/.claude/skills/<name>/IMPROVEMENT_LOG.md`) cannot be written from Cowork's folder-scoped file tool; append `("Step 3: improvement log update", "host-wide skill dir not connected in Cowork", <pending entry text>)` to `blocked_steps` and continue. |
+
+3. Add an entry with date, what changed, and why. Be specific — future sessions should be able to reconstruct the reasoning.
 
 If no skill files changed, write a one-line entry: `<date> — No skill changes this session.`
 
@@ -80,7 +121,7 @@ If no skill files changed, write a one-line entry: `<date> — No skill changes 
 
 ## Step 4: Update Durable Memory
 
-Review what was learned this session. Update memory files at `~/.claude/projects/<project-id>/memory/`:
+Review what was learned this session. Memory files live at `~/.claude/projects/<project-id>/memory/`:
 
 - New user preferences or feedback → `feedback_*.md`
 - New project context → `project_*.md`
@@ -88,7 +129,14 @@ Review what was learned this session. Update memory files at `~/.claude/projects
 
 Check `MEMORY.md` to see if any existing memories need updating based on new information from this session.
 
-**Memory hygiene:**
+**Routing by `core_capability_level` (set in Step 0):**
+
+| Level | Action |
+|---|---|
+| `"direct"` | Write/Edit memory files directly under `~/.claude/projects/<project-id>/memory/`. Update `MEMORY.md` index in the same operation. |
+| `"L1"` / `"L2"` / `"L3"` | `~/.claude/projects/` is outside Cowork's connected folders, and no `mcp__core__*` write tool covers project memory today. Capture the intended memory updates (file name, frontmatter, full body, `MEMORY.md` index line) in the handoff under "Memory Updates Pending" so the next CLI session can apply them verbatim. Append `("Step 4: memory update", "project memory dir not connected in Cowork; no MCP write tool yet", <pending entries>)` to `blocked_steps`. |
+
+**Memory hygiene** (apply in any harness — captured content must already reflect these decisions):
 - Update stale memories rather than adding duplicates
 - Remove memories that were proven wrong
 - Keep `MEMORY.md` index current
@@ -96,6 +144,13 @@ Check `MEMORY.md` to see if any existing memories need updating based on new inf
 ---
 
 ## Step 4.5: Dream Cycle Cadence Check
+
+**Routing by `core_capability_level` (set in Step 0):**
+
+| Level | Action |
+|---|---|
+| `"direct"` | Proceed with the cadence check below — read the most recent file in `~/.core/dream-cycles/` and surface per the table. |
+| `"L1"` / `"L2"` / `"L3"` | `~/.core/dream-cycles/` is not exposed by any `mcp__core__*` read tool today. Append `("Step 4.5: dream cycle cadence check", "no MCP read tool for `~/.core/dream-cycles/`", "cadence status unavailable in this harness")` to `blocked_steps` and surface a one-line note in the handoff: *"Dream cycle cadence unavailable in current harness; next CLI session should run Step 4.5 fresh."* Then continue to Step 5. (Future MCP tool: `mcp__core__read_dream_cycle_latest` would close this gap.) |
 
 Read the most recent file in `~/.core/dream-cycles/` (filename is `YYYY-MM-DD.md`). Calculate days elapsed since that date.
 
@@ -127,13 +182,24 @@ Update the authoritative project synthesis at `<project>/PROJECT.md` (find the p
 
 ## Step 6: Sync and Publish (If Skill Files Changed)
 
-If any SKILL.md files in `~/.claude/skills/` were modified:
+**Routing by `core_capability_level` (set in Step 0):**
 
-1. Rsync to `core-skill/` mirror:
+| Level | Action |
+|---|---|
+| `"direct"` | If any SKILL.md files under `~/.claude/skills/` were modified, run the sync/publish flow below. |
+| `"L1"` / `"L2"` / `"L3"` | Sync/publish operates on host-side paths and shell scripts that Cowork cannot execute against host paths. Skill edits originating in a Cowork session must flow back through a Claude Code CLI session for sync. Append `("Step 6: sync and publish", "Cowork cannot execute host-path sync/publish; defer to next CLI session", <list of modified skill files>)` to `blocked_steps`. |
+
+**Sync/publish flow** (run only in `"direct"` harness):
+
+1. Rsync to `core-skill/` mirror (public-release skill content):
    ```bash
    rsync -av --delete ~/.claude/skills/core/ ~/Documents/Projects/core-skill/
    ```
-2. Run the publish script if this is a CORE project session:
+2. Refresh plugin-bundled skill snapshots (for plugin-bundled skills like `orient`/`finalize`/`vibecheck`/`core`):
+   ```bash
+   python3 ~/Documents/Projects/core-claude-cowork-max-plugin/scripts/refresh_bundled_skills.py
+   ```
+3. Run the publish script if this is a CORE project session:
    ```bash
    .claude/scripts/publish-skill.sh "Brief description of what changed"
    ```
@@ -146,4 +212,8 @@ After all steps complete, declare:
 
 > Session closed. Handoff written. Memory updated.
 
-If anything couldn't be completed, name it explicitly — don't silently skip it.
+**If `blocked_steps` is non-empty**, name each blocked step explicitly in the declaration:
+
+> Session closed. Handoff written. Steps blocked by harness limitations and captured in the handoff: <comma-separated step names>. Next compatible-harness session should pick them up.
+
+If anything else couldn't be completed, name it explicitly — don't silently skip it.

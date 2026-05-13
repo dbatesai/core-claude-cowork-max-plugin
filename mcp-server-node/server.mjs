@@ -11,7 +11,7 @@ import readline from "node:readline";
 
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_NAME = "core";
-const SERVER_VERSION = "1.1.1";
+const SERVER_VERSION = "1.1.3";
 const CORE_DATA_DIR = process.env.CORE_DATA_DIR || join(homedir(), ".core");
 
 // --- JSON-RPC plumbing (stderr-only logging; stdout reserved for responses) ---
@@ -349,9 +349,12 @@ function tool_read_vibe_log(args) {
   if (content === null) {
     return { found: false, note: "~/.core/vibes/vibe-log.md not found — no vibes captured yet", entries: [] };
   }
+  // F8 fix: trust file order. append_vibe_log prepends new entries, so entries[0]
+  // is always the most recently written vibe. Date-string sort produced stale
+  // most_recent_vibe on same-date ties (parseVibeEntries returns file-order, and
+  // a stable date-sort preserved oldest-first among ties — surfacing the wrong entry).
   const entries = parseVibeEntries(content);
-  const sorted = [...entries].sort((a, b) => b.date.localeCompare(a.date));
-  const truncated = sorted.slice(0, Math.min(limit, 50));
+  const truncated = entries.slice(0, Math.min(limit, 50));
   return {
     found: true,
     path,
@@ -408,16 +411,17 @@ function tool_read_workshop_state(args) {
   // may not yet be registered in index.json (F1 root cause).
   let wsPath;
   let resolvedWid = wid;
+  let pointer = null;
   if (projectPath) {
     const resolved = resolve(projectPath);
     if (existsSync(resolved)) {
       wsPath = resolved;
-      // Try to read workspace_id from the pointer file
-      const pointer = readJSON(join(resolved, "workspace.json"));
+      pointer = readJSON(join(resolved, "workspace.json"));
       if (pointer && pointer.workspace_id) resolvedWid = pointer.workspace_id;
     }
   }
   if (!wsPath) wsPath = resolveWorkspacePath(resolvedWid);
+  if (!pointer && wsPath) pointer = readJSON(join(wsPath, "workspace.json"));
 
   const dm = tool_read_dm_profile();
   const vibe = tool_read_vibe_log({ limit: 1 });
@@ -429,10 +433,39 @@ function tool_read_workshop_state(args) {
   if (wsPath) {
     const projectMd = readText(join(wsPath, "PROJECT.md"));
     if (projectMd) {
-      const whatMatch = projectMd.match(/^## §?\s*What & Why\s*\n+(.+)/m);
-      if (whatMatch) projectName = whatMatch[1].trim().replace(/^#+/, "").trim();
-      const stateMatch = projectMd.match(/^## §?\s*State\s*\n+[-*]\s*\*\*(.+?)\*\*/m);
-      if (stateMatch) stateSummary = stateMatch[1].trim();
+      // F6b fix: project_name resolves from workspace pointer's `name` (index-
+      // attested) first, then PROJECT.md H1 title. Previous behavior grabbed the
+      // first prose line after `## §What & Why`, which returned description text
+      // rather than the project's name.
+      if (pointer && pointer.name) {
+        projectName = pointer.name;
+      } else {
+        const h1Match = projectMd.match(/^# (.+)$/m);
+        if (h1Match) projectName = h1Match[1].trim();
+      }
+
+      // F6b fix: project_state_summary uses extractSection (§-aware) and takes
+      // the first non-empty bullet's leading content. Previous regex required
+      // `- **bold**` first bullet which is the CORE PROJECT.md convention but
+      // returned null on §-prefixed PROJECT.md files without that exact format.
+      // Backwards-compatible: if the first bullet IS `**bold**`-led (CORE
+      // convention), still extract the bold content as the summary.
+      const stateContent = extractSection(projectMd, "State");
+      if (stateContent) {
+        const lines = stateContent.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
+        const firstBullet = lines.find((l) => l.startsWith("-") || l.startsWith("*")) || lines[0];
+        if (firstBullet) {
+          const cleaned = firstBullet.replace(/^[-*]\s+/, "");
+          const boldMatch = cleaned.match(/^\*\*(.+?)\*\*/);
+          if (boldMatch) {
+            stateSummary = boldMatch[1].trim();
+          } else {
+            const sentEnd = cleaned.search(/[.!?](?=\s|$)/);
+            stateSummary = (sentEnd > 0 ? cleaned.slice(0, sentEnd) : cleaned.slice(0, 120)).trim();
+          }
+        }
+      }
+
       activeRiskCount = countOpenRisks(projectMd);
     }
   }
@@ -576,8 +609,12 @@ function tool_append_vibe_log(args) {
   ensureDir(vibesDir);
   const logPath = join(vibesDir, "vibe-log.md");
   const header = `## ${date}${label ? " — " + label : ""}`;
-  const block = `\n${header}\n${vibe}${ascii_art ? "\n" + ascii_art : ""}\n`;
-  appendFileSync(logPath, block, "utf-8");
+  const block = `${header}\n${vibe}${ascii_art ? "\n" + ascii_art : ""}\n\n`;
+  // F8 fix: prepend to the top of the file (newest-first convention) so
+  // read_vibe_log.most_recent_vibe is always the entry that was just written,
+  // regardless of date-string ties or backfill inserts. File order IS recency.
+  const existing = readText(logPath) ?? "";
+  writeFileSync(logPath, block + existing.replace(/^\s+/, ""), "utf-8");
   auditLog("append_vibe_log", logPath, `${date}: ${vibe.slice(0, 60)}`);
   return { success: true, date, path: logPath };
 }

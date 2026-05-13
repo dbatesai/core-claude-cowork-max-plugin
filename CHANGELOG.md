@@ -7,6 +7,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.3] — 2026-05-12
+
+Rolls iteration-3 findings (F8 vibe-log ordering, F10 `finalize` harness
+detection), the iteration-4 follow-up finding (F6b `read_workshop_state` regex
+realignment), and the F9 install-time permission verdict (DC-43 — A-REVISED
+Option 1+C1+C3 baseline with Option 5(a) PermissionRequest message-augmentation
+hook) into one release. Skipped intermediate v1.1.2 since no v1.1.2 zip ever
+shipped — v1.1.1 → v1.1.3 is a single release boundary.
+
+### Added (v1.1.3 work — F9 verdict Option 5(a))
+
+- **`PermissionRequest` augmentation hook — Q-F9-1 FAVORABLE, F9 verdict
+  Option 5(a) green-lit.** New cross-platform Python hook at
+  `scripts/permission_request.py` (with `.sh` and `.cmd` shims) registered in
+  `hooks/hooks.json`. Fires when Claude Code surfaces a permission request inside
+  a Cowork session (empirically verified for Read / Write / Edit / Glob / Grep /
+  `mcp__cowork__*` per Q-F9-1 probe 2026-05-13 — payloads captured in
+  `outputs/2026-05-12/q-f9-1-findings.md` in the CORE dev repo).
+
+  **What it does:** parses the stdin JSON payload Claude Code emits (tool_name,
+  tool_input, permission_suggestions), maps to a structured advisory keyed off
+  the most specific suggestion shape (addDirectories → outside-connected-folders;
+  addRules → rule-grant-required or cowork-mcp-approval depending on tool family;
+  setMode acceptEdits → edit-mode-required; bash → bash-approval; otherwise
+  generic permission-required), and emits a `[[CORE-PERMISSION-CONTEXT-BEGIN]]
+  … [[CORE-PERMISSION-CONTEXT-END]]` block to stdout. Cowork injects stdout into
+  the DM's session context, so the DM (Keel) sees the advisory BEFORE the
+  harness's auto-refusal lands and can craft a clear plain-language message to
+  the user about what scope grant would unblock the action.
+
+  **What it deliberately does not do (pay-to-play principle, David
+  2026-05-12):** never auto-approves; never blocks or denies; never modifies the
+  permission decision; never builds alternate code paths to fake functionality on
+  denial. Passive augmentation only. If the user denies, the action fails
+  normally and the DM's advisory explains what won't work and re-asks. Buyer
+  beware.
+
+  **Cowork-only.** Gated on `CLAUDE_CODE_IS_COWORK=1`; silent no-op on Claude
+  Code CLI so the augmentation doesn't degrade non-Cowork sessions. Uses
+  `permission_suggestions` from the harness payload verbatim wherever possible
+  — Anthropic already computes which grant would unblock; the hook lifts that
+  into agent-facing copy without re-deriving it.
+
+  **Audit log** at `~/.core/logs/permission-events.md` (append-only markdown)
+  captures every fire for v1.1.3 acceptance testing — including the bounded gap
+  for Bash (which did not fire in the Q-F9-1 probe; v1.1.3 acceptance probe will
+  re-test from a clean settings state to determine whether sandbox bash is
+  pre-approved at the harness layer or only first-ever-bash fires).
+
+  **Test:** `scripts/test_permission_request.py` (11 assertions covering the four
+  Q-F9-1 captured payloads plus synthetic edge cases — pay-to-play discipline
+  check for forbidden decision verbs, missing-tool-name silence, malformed-JSON
+  defense, non-Cowork silence, audit-log persistence). Runs in ~0.5s; integrated
+  with the rest of the test suite. *Add to CI hook-scripts job manually:* append
+  `scripts/permission_request.py scripts/test_permission_request.py` to the
+  py_compile line and add a new step `python scripts/test_permission_request.py`
+  with `CORE_DATA_DIR: ${{ runner.temp }}/core-permission-test` (workflow edit
+  blocked by safety hook in this session; applies cleanly on retry with explicit
+  approval).
+
+### Fixed
+
+- **`read_workshop_state` regex realignment — F6b (LOW) from Cowork iteration-4
+  test.** `mcp-server-node/server.mjs` `tool_read_workshop_state` had two
+  inline regexes separate from `extractSection`. The `project_name` regex
+  `/^## §?\s*What & Why\s*\n+(.+)/m` grabbed the first prose line after the
+  §What & Why heading — returning description text instead of the project's
+  name. The `project_state_summary` regex
+  `/^## §?\s*State\s*\n+[-*]\s*\*\*(.+?)\*\*/m` required the first State bullet
+  to lead with `**bold**` content — which matched the CORE-project convention
+  but returned `null` on §-prefixed PROJECT.md files without that exact format
+  (e.g., the test-core-plugin workspace). Fix: `project_name` resolves from
+  `workspace.json.name` (index-attested) first, then falls back to the
+  PROJECT.md `# H1` title. `project_state_summary` uses `extractSection` (now
+  §-aware) and returns the first non-empty bullet's content — preserves the
+  leading `**bold**` extraction when present (backwards-compat with CORE
+  convention) and otherwise returns the first sentence up to 120 chars. Unit
+  test at `mcp-server-node/test-workshop-state.mjs` (6 assertions across three
+  PROJECT.md shapes: §-prefixed without leading bold; §-prefixed CORE-style
+  with leading bold; H1-only fallback when `workspace.json` is missing).
+
+- **`finalize` harness detection — F10 (MEDIUM, structural) from Cowork
+  iteration-3 test.** `skills/finalize/SKILL.md` gained a new "Step 0: Harness
+  Resolution" that reuses the DC-41 precedent (env `CLAUDE_CODE_IS_COWORK` +
+  `~/.core/capability.json`) to set `core_capability_level`. Steps 3 (improvement
+  log), 4 (memory), 4.5 (dream cycle), 6 (sync/publish) gained routing tables —
+  the L0 (`"direct"`) paths run unchanged; L1+/Cowork routes blocked steps to a
+  `blocked_steps` list with concrete pending content. Step 2 (handoff) gained a
+  conditional "Steps That Could Not Complete" section template; the closing
+  declaration names blocked steps explicitly so the next compatible-harness
+  session sees what didn't complete. Step 3's path was also corrected to the
+  project-root `<project>/IMPROVEMENT_LOG.md` per `CLAUDE.md` (it had been
+  pointing at `~/.claude/skills/core/IMPROVEMENT_LOG.md`, which doesn't exist).
+  Step 6 now references the cross-platform `refresh_bundled_skills.py` for
+  plugin-bundled skills alongside the existing rsync flow. This step sets the
+  precedent for any future harness-aware finalize work — DC-42's eventual prune
+  step should reuse the same `core_capability_level` resolution.
+
+
+
+- **Vibe-log ordering — F8 (MEDIUM) from Cowork iteration-3 test.**
+  `mcp-server-node/server.mjs` `tool_append_vibe_log` now prepends new entries
+  to the top of `~/.core/vibes/vibe-log.md` instead of appending, and
+  `tool_read_vibe_log` trusts file order instead of date-sorting. Together they
+  guarantee `most_recent_vibe` is the entry that was just written, regardless of
+  date-string ties or backfill inserts. Prior behavior: append + date-sort with
+  stable file-order tiebreaker surfaced the *oldest* entry of the most-recent
+  date as `most_recent_vibe`. Unit test at `mcp-server-node/test-vibe-log.mjs`
+  (11 assertions; spawns the MCP server with a temp `CORE_DATA_DIR` and
+  exercises `append → append (same date) → read → backfill older date → read`).
+  Existing `~/.core/vibes/vibe-log.md` deployments need one-time reversal — the
+  new tools cannot read meaning into pre-fix file order. (Backup before reverse:
+  `vibe-log.md.pre-f8-migration.bak`.)
+
+---
+
 ## [1.1.1] — 2026-05-11
 
 Iteration-2 follow-up release. Addresses the two new findings from the
