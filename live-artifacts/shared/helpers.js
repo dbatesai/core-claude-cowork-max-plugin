@@ -90,9 +90,9 @@ const CoreHelpers = (() => {
     readConvergence:          (wsId, dt)      => callTool("read_convergence_trajectory", { workspace_id: wsId || "", session_date: dt || "" }),
     readVibeLog:              (limit)         => callTool("read_vibe_log",               { limit: limit || 10 }),
 
-    // readWorkshopState — pass projectPath (absolute filesystem path) in Cowork sessions
+    // readDashboardState — pass projectPath (absolute filesystem path) in Cowork sessions
     // to resolve the correct workspace instead of falling back to list_workspaces().most_recent.
-    readWorkshopState:        (wsId, projectPath) => callTool("read_workshop_state", {
+    readDashboardState:        (wsId, projectPath) => callTool("read_dashboard_state", {
       workspace_id: wsId || "",
       ...(projectPath ? { project_path: projectPath } : {}),
     }),

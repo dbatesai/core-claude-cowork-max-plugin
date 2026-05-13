@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>DM Workshop</title>
+  <title>CORE Dashboard</title>
   <link rel="stylesheet" href="shared/styles.css">
   <link rel="stylesheet" href="shared/workshop-animations.css">
   <style>
@@ -251,7 +251,7 @@
     <!-- DM name header -->
     <div class="workshop-header">
       <span id="dm-name-display">Your DM</span>
-      <span class="workshop-header-tag">Workshop</span>
+      <span class="workshop-header-tag">Dashboard</span>
     </div>
 
     <!-- Loading state (shown while MCP data is fetched) -->
@@ -419,7 +419,7 @@
 
         // Vibe label (small, subtle). Qualified as "any project" because vibe entries
         // are a single global log without workspace attribution (Finding 7). Drop the
-        // qualifier once workspace_id is added to append_vibe_log + read_workshop_state.
+        // qualifier once workspace_id is added to append_vibe_log + read_dashboard_state.
         var vibeDisplay = qs("#vibe-display");
         if (vibeDisplay) {
           var rawVibe = (workshopState && workshopState.vibe_label) || "";
@@ -475,7 +475,7 @@
         // In Claude Code CLI, getProjectRoot() returns null and we fall back to
         // list_workspaces().most_recent (the pre-iteration-2 behavior).
         var projectRoot = await getProjectRoot();
-        var workshopState = await CoreHelpers.tools.readWorkshopState(undefined, projectRoot);
+        var workshopState = await CoreHelpers.tools.readDashboardState(undefined, projectRoot);
 
         if (!workshopState) {
           // MCP unavailable — offline/snapshot mode

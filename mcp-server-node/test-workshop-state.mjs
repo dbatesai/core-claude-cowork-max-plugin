@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// F6b unit test — read_workshop_state regex realignment.
-// Verifies the fix for the iteration-4 finding that read_workshop_state's
+// F6b unit test — read_dashboard_state regex realignment.
+// Verifies the fix for the iteration-4 finding that read_dashboard_state's
 // inline regexes (separate from extractSection) over-matched project_name
 // against §What & Why prose and under-matched project_state_summary by
 // requiring `- **bold**` first bullet. Exercises three PROJECT.md shapes
@@ -93,7 +93,7 @@ Test the installation process for the CORE plugin from a non-technical user pers
 `,
     });
 
-    const r1 = await callTool(child, 2, "read_workshop_state", { project_path: project1 });
+    const r1 = await callTool(child, 2, "read_dashboard_state", { project_path: project1 });
     assert.equal(
       r1.project_name,
       "Test Core Plugin",
@@ -129,7 +129,7 @@ CORE is a multi-agent adversarial reasoning skill.
 `,
     });
 
-    const r2 = await callTool(child, 3, "read_workshop_state", { project_path: project2 });
+    const r2 = await callTool(child, 3, "read_dashboard_state", { project_path: project2 });
     assert.equal(
       r2.project_name,
       "CORE Framework Development",
@@ -154,7 +154,7 @@ CORE is a multi-agent adversarial reasoning skill.
 `,
     });
 
-    const r3 = await callTool(child, 4, "read_workshop_state", { project_path: project3 });
+    const r3 = await callTool(child, 4, "read_dashboard_state", { project_path: project3 });
     assert.equal(
       r3.project_name,
       "Untracked Workspace",

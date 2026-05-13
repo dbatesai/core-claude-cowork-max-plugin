@@ -177,7 +177,7 @@ The zip MUST contain everything in this list. The build fails if any item is mis
 - `live-artifacts/onboarding-wizard.html`
 - `live-artifacts/trust-strip-dashboard.html`
 - `live-artifacts/swarm-live-view.html`
-- `live-artifacts/dm-workshop.html`
+- `live-artifacts/core-dashboard.html`
 - Any `live-artifacts/cdn-checksums.txt` and `live-artifacts/assets/` subtree
 
 ### Bundled CORE skills (snapshots)

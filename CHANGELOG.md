@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Breaking Changes
+
+- `live-artifacts/dm-workshop.html` renamed to `live-artifacts/core-dashboard.html`. Existing Cowork conversations referencing the old artifact path must re-open the CORE Dashboard.
+- MCP tool `read_workshop_state` renamed to `read_dashboard_state`.
+
+---
+
 ## [1.1.3] — 2026-05-12
 
 Rolls iteration-3 findings (F8 vibe-log ordering, F10 `finalize` harness

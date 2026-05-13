@@ -402,7 +402,7 @@ function lastSwarmDate(wsPath) {
   return null;
 }
 
-function tool_read_workshop_state(args) {
+function tool_read_dashboard_state(args) {
   const wid = (args && args.workspace_id) || "";
   const projectPath = (args && args.project_path) || null;
 
@@ -724,8 +724,8 @@ const TOOLS = {
     },
     handler: tool_read_vibe_log,
   },
-  read_workshop_state: {
-    description: "Aggregate state for the DM Workshop Live Artifact. Pass project_path (absolute path to the Cowork project folder) to resolve the correct workspace in Cowork sessions.",
+  read_dashboard_state: {
+    description: "Aggregate state for the CORE Dashboard Live Artifact. Pass project_path (absolute path to the Cowork project folder) to resolve the correct workspace in Cowork sessions.",
     inputSchema: {
       type: "object",
       properties: {
@@ -734,7 +734,7 @@ const TOOLS = {
       },
       required: [],
     },
-    handler: tool_read_workshop_state,
+    handler: tool_read_dashboard_state,
   },
   register_workspace: {
     description: "Add or update a workspace entry in ~/.core/index.json. Safe to call repeatedly (upsert).",
