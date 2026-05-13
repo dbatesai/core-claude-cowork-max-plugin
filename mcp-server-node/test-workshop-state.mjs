@@ -168,6 +168,81 @@ CORE is a multi-agent adversarial reasoning skill.
     assertions += 2;
 
     console.log(`✓ F6b test passed (${assertions} assertions across 3 PROJECT.md shapes)`);
+
+    // ── T-WS: workspaces_with_swarm sort order and field shape ───────────────
+    // Seed four workspaces with different swarm states; verify the returned
+    // array is sorted halted → running → complete → idle and that each entry
+    // carries the expected fields. The `complete` workspace is essential: it
+    // distinguishes the four-way contract from a three-way one (without it,
+    // the SWARM_SORT_ORDER constant could silently swap complete/idle).
+    //
+    // NOTE: index.json and workspace manifests go in `coreDir` (= CORE_DATA_DIR),
+    // not `tmpRoot`. The server reads from CORE_DATA_DIR.
+
+    writeFileSync(join(coreDir, "index.json"), JSON.stringify([
+      { workspace_id: "ws-run",  name: "Running WS",  project_path: join(coreDir, "project"), last_active: "2026-05-12T10:00:00Z" },
+      { workspace_id: "ws-halt", name: "Halted WS",   project_path: join(coreDir, "project"), last_active: "2026-05-12T09:00:00Z" },
+      { workspace_id: "ws-idle", name: "Idle WS",     project_path: join(coreDir, "project"), last_active: "2026-05-12T08:00:00Z" },
+      { workspace_id: "ws-comp", name: "Complete WS", project_path: join(coreDir, "project"), last_active: "2026-05-12T07:00:00Z" }
+    ], null, 2));
+
+    mkdirSync(join(coreDir, "workspaces", "ws-run"),  { recursive: true });
+    writeFileSync(join(coreDir, "workspaces", "ws-run", "workspace.json"), JSON.stringify({
+      workspace_id: "ws-run",
+      current_swarm: {
+        status: "running",
+        phase: "Phase 2",
+        agent_count: 3,
+        task_summary: "running task",
+        updated_at: new Date().toISOString()
+      }
+    }, null, 2));
+
+    mkdirSync(join(coreDir, "workspaces", "ws-halt"), { recursive: true });
+    writeFileSync(join(coreDir, "workspaces", "ws-halt", "workspace.json"), JSON.stringify({
+      workspace_id: "ws-halt",
+      current_swarm: { status: "halted", updated_at: new Date().toISOString() }
+    }, null, 2));
+
+    mkdirSync(join(coreDir, "workspaces", "ws-idle"), { recursive: true });
+    writeFileSync(join(coreDir, "workspaces", "ws-idle", "workspace.json"), JSON.stringify({
+      workspace_id: "ws-idle"
+      // no current_swarm — treated as "idle"
+    }, null, 2));
+
+    mkdirSync(join(coreDir, "workspaces", "ws-comp"), { recursive: true });
+    writeFileSync(join(coreDir, "workspaces", "ws-comp", "workspace.json"), JSON.stringify({
+      workspace_id: "ws-comp",
+      current_swarm: { status: "complete", completed_at: new Date().toISOString(), updated_at: new Date().toISOString() }
+    }, null, 2));
+
+    const rWS = await callTool(child, 5, "read_dashboard_state", {});
+    const wws = rWS?.workspaces_with_swarm;
+    assert.ok(Array.isArray(wws),                                   "T-WS: workspaces_with_swarm field present and is array");
+    assert.equal(wws?.length, 4,                                    "T-WS: 4 entries");
+    assert.equal(wws?.[0]?.swarm_status, "halted",                  "T-WS: halted sorts first");
+    assert.equal(wws?.[1]?.swarm_status, "running",                 "T-WS: running sorts second");
+    assert.equal(wws?.[2]?.swarm_status, "complete",                "T-WS: complete sorts third (between running and idle)");
+    assert.equal(wws?.[3]?.swarm_status, "idle",                    "T-WS: idle sorts last");
+    assert.ok(
+      wws.findIndex(w => w.swarm_status === "running") < wws.findIndex(w => w.swarm_status === "complete"),
+      "T-WS: running before complete"
+    );
+    assert.ok(
+      wws.findIndex(w => w.swarm_status === "complete") < wws.findIndex(w => w.swarm_status === "idle"),
+      "T-WS: complete before idle"
+    );
+    assert.equal(wws?.find(w => w.swarm_status === "running")?.swarm_phase,        "Phase 2",       "T-WS: running has phase");
+    assert.equal(wws?.find(w => w.swarm_status === "running")?.swarm_agent_count,  3,               "T-WS: running has count");
+    assert.equal(wws?.find(w => w.swarm_status === "running")?.swarm_task_summary, "running task",  "T-WS: running has summary");
+    assert.equal(wws?.find(w => w.swarm_status === "idle")?.workspace_id,          "ws-idle",       "T-WS: idle has workspace_id");
+    assert.equal(wws?.find(w => w.swarm_status === "idle")?.swarm_phase,           null,            "T-WS: idle swarm_phase is null");
+    assert.equal(wws?.find(w => w.swarm_status === "complete")?.workspace_id,      "ws-comp",       "T-WS: complete has workspace_id");
+    assert.ok("dm_name" in (rWS || {}),                             "T-WS: backwards-compat dm_name field still present");
+    assert.ok("workspace_count" in (rWS || {}),                     "T-WS: backwards-compat workspace_count field still present");
+    assertions += 16;
+
+    console.log(`✓ T-WS test passed (${assertions} total assertions)`);
   } finally {
     child.kill();
     rmSync(tmpRoot, { recursive: true, force: true });

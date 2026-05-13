@@ -474,6 +474,34 @@ function tool_read_dashboard_state(args) {
   const index = readJSON(join(CORE_DATA_DIR, "index.json"));
   if (Array.isArray(index)) workspaceCount = index.length;
 
+  // workspaces_with_swarm: enumerate all workspaces from index.json, read each
+  // manifest's current_swarm, sort by attention model (halted → running →
+  // complete → idle). Powers the Observatory Panel in the CORE Dashboard.
+  const SWARM_SORT_ORDER = { halted: 0, running: 1, complete: 2, idle: 3 };
+  const indexEntries = Array.isArray(index) ? index : [];
+  const workspacesWithSwarm = indexEntries.map((ws) => {
+    const wsId = ws?.workspace_id;
+    if (!wsId) return null;
+    const mPath = join(CORE_DATA_DIR, "workspaces", wsId, "workspace.json");
+    let swarm = null;
+    if (existsSync(mPath)) {
+      try { swarm = JSON.parse(readFileSync(mPath, "utf-8")).current_swarm ?? null; }
+      catch (_) { swarm = null; }
+    }
+    const status = swarm?.status ?? "idle";
+    return {
+      workspace_id:       wsId,
+      name:               ws?.name ?? wsId,
+      swarm_status:       status,
+      swarm_phase:        swarm?.phase        ?? null,
+      swarm_agent_count:  swarm?.agent_count  ?? null,
+      swarm_task_summary: swarm?.task_summary ?? null,
+      swarm_updated_at:   swarm?.updated_at   ?? null,
+    };
+  }).filter(Boolean).sort((a, b) =>
+    (SWARM_SORT_ORDER[a.swarm_status] ?? 99) - (SWARM_SORT_ORDER[b.swarm_status] ?? 99)
+  );
+
   return {
     dm_name: dm.dm_name ?? null,
     project_name: projectName,
@@ -484,6 +512,7 @@ function tool_read_dashboard_state(args) {
     vibe_label: vibe.most_recent_vibe ?? null,
     workspace_count: workspaceCount,
     workspace_path: wsPath ?? null,
+    workspaces_with_swarm: workspacesWithSwarm,
   };
 }
 
