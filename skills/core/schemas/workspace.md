@@ -41,14 +41,14 @@ A **delivery workspace** is the DM's **operational meta** about **source data** 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `current_swarm` | object \| null | Tracks the DM's active swarm for this workspace (v1.2.x Observatory feature). Written by `tool_update_swarm_status` with patch semantics; read by `tool_read_dashboard_state`. Absent or null when idle. |
-| `swarm_artifact_id` | string \| null | Identifier for the Cowork Swarm Live View artifact. Set by `tool_update_swarm_status` when the artifact is first created; persists across multiple swarm runs in the same workspace. Used to call `update_artifact()` in subsequent sessions. |
+| `current_swarm` | object \| null | Tracks the DM's active swarm for this workspace (v1.2.x Observatory feature). Written by `update_swarm_status` with patch semantics; read by `read_dashboard_state`. Absent or null when idle. |
+| `swarm_artifact_id` | string \| null | Identifier for the Cowork Swarm Live View artifact. Set by `update_swarm_status` when the artifact is first created; persists across multiple swarm runs in the same workspace. Used to call `update_artifact()` in subsequent sessions. |
 
 ---
 
 ## current_swarm Field (v1.2.x, Observatory feature)
 
-Tracks the DM's active swarm for this workspace. Written by `tool_update_swarm_status` (patch semantics); read by `tool_read_dashboard_state`. Absent or null when idle.
+Tracks the DM's active swarm for this workspace. Written by `update_swarm_status` (patch semantics); read by `read_dashboard_state`. Absent or null when idle.
 
 ```json
 "current_swarm": {
@@ -79,7 +79,7 @@ Tracks the DM's active swarm for this workspace. Written by `tool_update_swarm_s
 | `"complete"` | Swarm accepted; result delivered |
 | `"idle"` (or field absent) | Reset to `"idle"` (or omitted) at session start |
 
-**Related top-level field:** `swarm_artifact_id` (string \| null) is stored at the manifest root (not inside `current_swarm`) so it persists across multiple swarm runs for the same workspace. Set by `tool_update_swarm_status` when the Cowork Swarm Live View artifact is first created. Used by the DM to call `update_artifact({ id: swarm_artifact_id, ... })` in subsequent sessions.
+**Related top-level field:** `swarm_artifact_id` (string \| null) is stored at the manifest root (not inside `current_swarm`) so it persists across multiple swarm runs for the same workspace. Set by `update_swarm_status` when the Cowork Swarm Live View artifact is first created. Used by the DM to call `update_artifact({ id: swarm_artifact_id, ... })` in subsequent sessions.
 
 ---
 
