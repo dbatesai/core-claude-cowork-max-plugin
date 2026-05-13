@@ -164,9 +164,70 @@ If no cycles exist at `~/.core/dream-cycles/`: surface "No dream cycles on recor
 
 The DM does not run the dream cycle silently. Surface the recommendation; let the user decide. Dream cycles are user-acknowledged work, not background tasks — but they must not silently slip past their cadence either, which is what the SessionStart watch alone cannot prevent (the watch output scrolls past in bootstrap).
 
-If the user accepts: invoke the dream cycle protocol at `~/.claude/skills/core/references/dream-cycle.md` before completing /finalize, then continue to Step 5. If the user defers: note the deferral in the handoff so the next session sees the outstanding cadence debt.
+If the user accepts: invoke the dream cycle protocol at `~/.claude/skills/core/references/dream-cycle.md` before completing /finalize, then continue to Step 4.7. If the user defers: note the deferral in the handoff so the next session sees the outstanding cadence debt.
 
 **Why this step exists:** prior to its addition (2026-05-10 dream cycle), the SessionStart `[Dream Cycle Watch]` hook output was the only cadence signal. It scrolled past in bootstrap and got silently dropped during long sessions. Result: 14-day gap between dream cycles 2026-04-26 and 2026-05-10 despite 5+ substantial sessions in that window. This step makes the cadence enforceable at session close rather than hoping the bootstrap reminder gets acted on.
+
+---
+
+## Step 4.7: Compaction Sweep — §State + §Moves + IMPROVEMENT_LOG
+
+(Added 2026-05-13 per DC-42 verdict at `outputs/2026-05-11/project-md-bloat-review-synthesis.md`.)
+
+**Why this step exists:** PROJECT.md and IMPROVEMENT_LOG grow monotonically across sessions. By 30 sessions in, the files exceed harness read limits (~25K-token Read tool cap) and bootstrap silently slides from authoritative-read to slice-read. The user-control invariant has an unstated precondition — *the DM can read the whole synthesis file at orient* — that bloat empirically falsifies. This step enforces the existing 3–5-bullets §State cap, the present-tense entry-shape rule (DC-42), and an analogous count-based rotation for IMPROVEMENT_LOG.
+
+### Triggers (any one fires the sweep)
+
+- §State has >5 bullets
+- Any §State bullet leads with a past-tense session verb ("shipped," "landed," "completed," "ran," "added," "verified," "documented," "fixed," "resolved")
+- §Moves has any `[x]` checked items still in the file
+- IMPROVEMENT_LOG.md has >15 entries (count-based; calibrate per project after first rotation)
+
+**Routing by `core_capability_level` (Step 0):** identical to Step 4.5 — `"direct"` proceeds inline; `"L1"`/`"L2"`/`"L3"` append `("Step 4.7: compaction sweep", "PROJECT.md edits require Write/Edit access to project folder", "queue for next CLI session")` to `blocked_steps` only if the project folder isn't connected. In Cowork L1 sessions where the project folder IS a connected Cowork folder (as in iter-5 and after), file-tool writes work; proceed inline.
+
+### Decision tree
+
+```
+For §State:
+  if entry count > 5 OR any entry violates present-tense rule:
+    classify each entry:
+      - KEEP   — current-truth, present-tense lead, ≤40 words
+      - PRUNE  — past-tense session-event narrative (info lives in handoff)
+      - REWRITE — mixed: extract current-truth nugget, prune the narrative
+      - MIGRATE — explicit user choice: preserve in PROJECT-ARCHIVE.md
+    default for past-tense-leading entries: PRUNE
+    default for present-tense-leading entries: KEEP
+    present classified list to user
+    require explicit user approval before any deletion/migration
+    apply approved actions
+
+For §Moves:
+  for each [x] checked item:
+    default: PRUNE (handoff already records the completion)
+    user may override → MIGRATE (PROJECT-ARCHIVE.md) or KEEP (rare)
+    present list to user with defaults
+    require explicit approval
+
+For IMPROVEMENT_LOG.md:
+  if entry count > 15:
+    keep most recent N entries (default N=10; user can tune)
+    rotate older entries to IMPROVEMENT_LOG-ARCHIVE.md (append-only,
+    never read at bootstrap, single-WRITE)
+    present cut-point to user; require explicit approval before rotating
+    apply approved rotation
+```
+
+### Closing Declaration line
+
+Append to the /finalize Closing Declaration:
+
+> **Compaction sweep:** §State pruned N, migrated M, kept K, rewrote R. §Moves pruned P, migrated Q. IMPROVEMENT_LOG rotated R entries to archive (new file size: X entries).
+
+### What this preserves
+
+- **User-control invariant.** Every prune/migrate/rotate requires explicit user approval. Default-PRUNE for past-tense-leading entries is *prescription*, not action — user sees the list and approves before any deletion. Per `~/.claude/skills/core/SKILL.md` Architectural Invariants, user-control invariant holds: deleted facts stay deleted; the DM cannot resurrect them via auto-archive read.
+- **Read-side singularity.** `PROJECT-ARCHIVE.md` and `IMPROVEMENT_LOG-ARCHIVE.md` are **single-WRITE / never-read-at-bootstrap**. They preserve history for the user's eyes only; the DM treats them as out of scope per startup.md Phase 3A archive-exclusion rule. Per DC-19, only the read-side singularity of PROJECT.md matters; write-side siblings are fine.
+- **Schema compliance.** The 3–5 bullet §State cap is documented in `data-storage.md` Project Folder schema; this step enforces what was already prescribed but unenforced for 30+ sessions.
 
 ---
 

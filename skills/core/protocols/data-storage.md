@@ -165,8 +165,13 @@ Every project's synthesis file has the same six sections. Sections that don't ap
 
 1. **What & Why** — one paragraph: project identity, outcome, constraints, deadline, owner.
 2. **State** — 3–5 bullets: current status, what moved recently, what's blocked. If a project is solo (no §People entries) or has no active external systems, declare it here.
+
+   **Entry-shape rule (DC-42):** §State bullets are **present-tense statements about the project's current condition**. Entries that lead with a past-tense session verb ("shipped," "landed," "completed," "ran," "added," "verified," "documented," "fixed," "resolved") belong in `handoffs/`, not §State. Each entry ≤40 words. The "3–5 bullets" cap is enforced — when §State exceeds 5 entries OR any entry violates present-tense rule, `/finalize` Step 4.7 triggers compaction.
+
 3. **People** — flat list: `Name (role) — context, latest, commitments`. Inline; no separate file. Solo projects omit and declare in §State.
 4. **Moves** — next actions with owners and dates. Checkbox list. Large backlogs (>~20 items) reference an external tracker (GitHub Issues, etc.) rather than enumerate here.
+
+   **Open-actions-only rule (DC-42):** §Moves holds *open* next actions only. Checked items (`[x]`) are removed at session close — either by deletion (the handoff already records what was done) or by migration to `PROJECT-ARCHIVE.md` if the user wants to preserve the history. `/finalize` Step 4.7 includes §Moves in the compaction sweep.
 5. **Decisions & Risks** — dated bullets. Decisions are append-only; risks carry mitigation + last-reviewed date; closed items struck through with reason. RAID as a dedicated artifact is over-specified — this is one section.
 6. **Notes** — freeform. Architectural principles, meta-learnings, harness/model notes, junk drawer.
 
