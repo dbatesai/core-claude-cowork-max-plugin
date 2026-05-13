@@ -30,10 +30,56 @@ A **delivery workspace** is the DM's **operational meta** about **source data** 
 | `project_path` | string | yes | Absolute path to the source data's root directory (where `PROJECT.md` lives) |
 | `created` | string (ISO 8601) | yes | When the workspace was first registered |
 | `last_active` | string (ISO 8601) | yes | Last time the DM performed work in this workspace. Updated automatically. |
-| `session_log_refs` | array of strings | no | Paths to session log directories at `<project>/sessions/YYYY-MM-DD/`. The workspace *points to* them; it does not hold them. |
+| `session_log_refs` | array of strings | no | Optional list of paths to session log directories at `<project>/sessions/YYYY-MM-DD/`. When present, the workspace *points to* them; it does not hold them. |
 | `dm_notes` | string | yes | Free-form DM operational notes — cross-session observations about how the project is being worked on. Project facts (decisions, risks, moves, people) live in `<project>/PROJECT.md`, not here. |
 
 **What is NOT in the manifest:** timeline, milestones, `delivery_risk`, decisions, risks, action items, people. These are **project facts** and belong in `<project>/PROJECT.md` — the user-controlled synthesis. The workspace holds operational meta (how the DM has been working on the project), not the project truth itself.
+
+---
+
+## Manifest File (`~/.core/workspaces/<id>/workspace.json`) — Optional Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `current_swarm` | object \| null | Tracks the DM's active swarm for this workspace (v1.2.x Observatory feature). Written by `tool_update_swarm_status` with patch semantics; read by `tool_read_dashboard_state`. Absent or null when idle. |
+| `swarm_artifact_id` | string \| null | Identifier for the Cowork Swarm Live View artifact. Set by `tool_update_swarm_status` when the artifact is first created; persists across multiple swarm runs in the same workspace. Used to call `update_artifact()` in subsequent sessions. |
+
+---
+
+## current_swarm Field (v1.2.x, Observatory feature)
+
+Tracks the DM's active swarm for this workspace. Written by `tool_update_swarm_status` (patch semantics); read by `tool_read_dashboard_state`. Absent or null when idle.
+
+```json
+"current_swarm": {
+  "status": "idle | running | halted | complete",
+  "phase": "Phase 2: Critic Analysis",
+  "agent_count": 5,
+  "agent_names": ["Vellum", "Fold", "Spar", "Reed", "Vex"],
+  "agent_roles": {
+    "Vellum": "generator",
+    "Fold": "generator",
+    "Spar": "critic",
+    "Reed": "critic",
+    "Vex": "monitor"
+  },
+  "task_summary": "F9 install-time permissions review",
+  "started_at": "2026-05-12T22:00:00.000Z",
+  "updated_at": "2026-05-12T22:15:00.000Z",
+  "completed_at": null
+}
+```
+
+**Status lifecycle**
+
+| Status | Written when |
+|---|---|
+| `"running"` | Phase 1 spawn; also when resuming after a halted state |
+| `"halted"` | DM calls `AskUserQuestion` mid-swarm; graceful halt |
+| `"complete"` | Swarm accepted; result delivered |
+| `"idle"` (or field absent) | Reset to `"idle"` (or omitted) at session start |
+
+**Related top-level field:** `swarm_artifact_id` (string \| null) is stored at the manifest root (not inside `current_swarm`) so it persists across multiple swarm runs for the same workspace. Set by `tool_update_swarm_status` when the Cowork Swarm Live View artifact is first created. Used by the DM to call `update_artifact({ id: swarm_artifact_id, ... })` in subsequent sessions.
 
 ---
 

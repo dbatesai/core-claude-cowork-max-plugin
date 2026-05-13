@@ -220,6 +220,45 @@ When 3+ agents reach the same conclusion, confidence MUST be calibrated by analy
 
 ---
 
+## Swarm State Tracking
+
+Call `update_swarm_status` at the moments below to keep the CORE Dashboard Observatory Panel current. All calls are fire-and-forget — never delay swarm execution waiting on them. The tool has patch semantics: only provided fields are merged into the workspace's `current_swarm`; unrelated manifest keys are preserved.
+
+| Moment | `status` | Other required args |
+|---|---|---|
+| Agents spawned at Phase 1 start | `"running"` | `phase`, `agent_count`, `agent_names`, `agent_roles`, `task_summary` |
+| Each phase transition (Phase 2, Phase 3, etc.) | `"running"` | `phase` |
+| `AskUserQuestion` invoked mid-swarm | `"halted"` | — |
+| User responds; swarm resumes | `"running"` | `phase` (current phase) |
+| Result accepted (Deep Audit passed) | `"complete"` | — |
+| Graceful halt (unrecoverable error) | `"halted"` | — |
+
+### Cowork-only: Swarm Live View artifact lifecycle
+
+In Cowork sessions, also manage a Swarm Live View artifact per workspace:
+
+1. **At Phase 0** (before spawning agents): read the workspace manifest's `swarm_artifact_id`. If null/absent, create the artifact:
+   ```
+   mcp__cowork__create_artifact({ html_path: "live-artifacts/swarm-live-view.html" })
+   ```
+   Persist the returned ID via `update_swarm_status({ workspace_id, status: "running", swarm_artifact_id: <id> })`.
+
+2. **At each phase transition**: push state updates to the existing artifact:
+   ```
+   update_artifact({ id: swarm_artifact_id, html_path: "live-artifacts/swarm-live-view.html", update_summary: "<phase description>" })
+   ```
+   The payload provides updated values for `window.CORE.swarmView.update(state)` (swarmPhase, agentCount, mindChanges, monitorAlerts, persuasionRows, convergence, agentHierarchy, phaseEvents).
+
+3. **At swarm close**: final `update_artifact` with `swarmStatus: "COMPLETE"` or `"HALTED"` and any remaining `phaseEvents`.
+
+The Swarm Live View artifact persists across Cowork sessions (verified Q8 CROSS-RESTART-PASS). The `swarm_artifact_id` at manifest top level (not inside `current_swarm`) ensures it survives multiple swarm runs in the same workspace.
+
+### Why fire-and-forget
+
+A failed `update_swarm_status` (manifest parse error, disk full, etc.) returns `{ success: false, error: ... }`. The DM should log this once for diagnostic value but never let it block the swarm. Worst case the Observatory Panel shows stale state for one workspace — the swarm itself completes normally.
+
+---
+
 ## Result Assessment
 
 ### Receive Results
