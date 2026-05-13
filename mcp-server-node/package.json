@@ -12,7 +12,8 @@
     "smoke": "echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}' | node server.mjs | head -1",
     "test:vibe-log": "node test-vibe-log.mjs",
     "test:workshop-state": "node test-workshop-state.mjs",
-    "test": "npm run smoke && npm run test:vibe-log && npm run test:workshop-state"
+    "test:swarm-status": "node test-swarm-status.mjs",
+    "test": "npm run smoke && npm run test:vibe-log && npm run test:workshop-state && npm run test:swarm-status"
   },
   "engines": {
     "node": ">=18.0.0"

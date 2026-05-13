@@ -567,6 +567,74 @@ function tool_write_workspace_manifest(args) {
   return { success: true, workspace_id, path: manifestPath };
 }
 
+const VALID_SWARM_STATUSES = new Set(["idle", "running", "halted", "complete"]);
+
+function tool_update_swarm_status(args) {
+  const {
+    workspace_id, status, phase, agent_count,
+    agent_names, agent_roles, task_summary, swarm_artifact_id
+  } = args || {};
+
+  if (!workspace_id) return { success: false, error: "workspace_id required" };
+  if (status !== undefined && !VALID_SWARM_STATUSES.has(status)) {
+    return { success: false, error: `invalid status "${status}"; must be idle|running|halted|complete` };
+  }
+
+  const wsDir = safeWritePath(join(CORE_DATA_DIR, "workspaces", workspace_id));
+  ensureDir(wsDir);
+  const manifestPath = join(wsDir, "workspace.json");
+
+  let manifest = {};
+  if (existsSync(manifestPath)) {
+    try {
+      manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
+    } catch (e) {
+      return {
+        success: false,
+        error: `manifest parse error at ${manifestPath}: ${e.message}`,
+      };
+    }
+  }
+
+  const now = new Date().toISOString();
+  const prev = manifest.current_swarm || {};
+  const swarm = { ...prev };
+
+  if (status       !== undefined) swarm.status       = status;
+  if (phase        !== undefined) swarm.phase        = phase;
+  if (agent_count  !== undefined) swarm.agent_count  = agent_count;
+  if (agent_names  !== undefined) swarm.agent_names  = agent_names;
+  if (agent_roles  !== undefined) swarm.agent_roles  = agent_roles;
+  if (task_summary !== undefined) swarm.task_summary = task_summary;
+  swarm.updated_at = now;
+
+  // Detect fresh swarm start: status transitioning to "running" from a terminal
+  // state (complete/idle) or from no prior swarm. Reset lifecycle timestamps so
+  // the new run is not contaminated by the previous run's timeline.
+  const isFreshStart =
+    status === "running" &&
+    (prev.status === undefined || prev.status === "complete" || prev.status === "idle");
+  if (isFreshStart) {
+    swarm.started_at   = now;
+    swarm.completed_at = null;
+  }
+
+  // started_at: set on first running write only (mid-lifetime guard; fresh-start
+  // branch above handles the cross-run case).
+  if (status === "running" && !swarm.started_at) swarm.started_at = now;
+
+  // completed_at: set when reaching terminal states; ensure key exists otherwise.
+  if (status === "complete" || status === "idle") swarm.completed_at = now;
+  else if (swarm.completed_at === undefined) swarm.completed_at = null;
+
+  manifest.current_swarm = swarm;
+  if (swarm_artifact_id !== undefined) manifest.swarm_artifact_id = swarm_artifact_id;
+
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), "utf-8");
+  auditLog("update_swarm_status", manifestPath, `${workspace_id} → ${status ?? "patch"}`);
+  return { success: true, workspace_id, status: swarm.status };
+}
+
 function tool_append_dm_profile_entry(args) {
   const { section, entry } = args || {};
   if (!section || !entry) return { success: false, error: "section and entry required" };
@@ -783,6 +851,24 @@ const TOOLS = {
       required: ["workspace_id", "manifest"],
     },
     handler: tool_write_workspace_manifest,
+  },
+  update_swarm_status: {
+    description: "Patch current_swarm in a workspace manifest. Call at swarm spawn (running), phase transitions, user-block (halted), and close (complete/idle). Patch-safe: only provided keys are merged into the existing current_swarm object. swarm_artifact_id is stored at manifest top-level, not inside current_swarm.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        workspace_id:      { type: "string", description: "Workspace ID matching ~/.core/index.json entry" },
+        status:            { type: "string", enum: ["idle","running","halted","complete"] },
+        phase:             { type: "string", description: "Current phase label e.g. 'Phase 2: Critic Analysis'" },
+        agent_count:       { type: "number" },
+        agent_names:       { type: "array",  items: { type: "string" } },
+        agent_roles:       { type: "object", description: "Map of agent name → role (generator/critic/monitor/guard)" },
+        task_summary:      { type: "string", description: "One-line task description for Observatory display" },
+        swarm_artifact_id: { type: "string", description: "Cowork artifact ID for Swarm Live View — persisted at manifest top level" }
+      },
+      required: ["workspace_id"],
+    },
+    handler: tool_update_swarm_status,
   },
   append_dm_profile_entry: {
     description: "Append a bullet-point entry to a named section in ~/.core/dm-profile.md.",
