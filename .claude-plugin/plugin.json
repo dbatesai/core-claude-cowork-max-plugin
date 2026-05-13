@@ -1,6 +1,6 @@
 {
   "name": "core-plugin",
-  "version": "1.1.3",
+  "version": "1.2.0",
   "description": "CORE: Cowork-native delivery intelligence with adversarial reasoning, Live Artifact dashboards, connector integration, and scheduled sessions",
   "author": {
     "name": "David Bates",

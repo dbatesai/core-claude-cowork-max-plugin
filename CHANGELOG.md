@@ -9,12 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [1.2.0] — 2026-05-13
+
+Observatory feature Phase 1: CORE Dashboard rename + `update_swarm_status` MCP
+tool + Observatory Panel scaffolding + Swarm Live View data API. Phase 2 visual
+design awaits a UI Excellence /core swarm; Phase 1 ships placeholder rendering
+behind a complete data path. Bundles the DC-42 skill protocol changes (§State
+present-tense entry-shape rule, archive-exclusion at bootstrap, /finalize
+Step 4.7 compaction sweep).
+
 ### Breaking Changes
 
 - `live-artifacts/dm-workshop.html` renamed to `live-artifacts/core-dashboard.html`. Existing Cowork conversations referencing the old artifact path must re-open the CORE Dashboard.
 - MCP tool `read_workshop_state` renamed to `read_dashboard_state`.
 
-### Added — v1.2.x Observatory feature (Phase 1)
+### Added — Observatory feature (Phase 1)
 
 - **`update_swarm_status` MCP tool** — patch-semantic write that lets the DM track active swarm state in workspace manifests during execution. Status lifecycle: `idle | running | halted | complete`. Lifecycle timestamps (`started_at`, `completed_at`) reset on fresh swarm starts to avoid stale state when a workspace is reused across multiple swarms. Tracked at `~/.core/workspaces/<id>/workspace.json` `current_swarm`.
 
