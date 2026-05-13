@@ -202,6 +202,11 @@
       opacity: 0.6;
     }
 
+    /* Observatory Panel */
+    .observatory-section {
+      margin-top: var(--space-md);
+    }
+
     /* Loading state */
     #workshop-loading {
       display: flex;
@@ -315,6 +320,12 @@
       </ul>
     </div>
 
+    <!-- Observatory Panel — visual design pending UI Excellence swarm -->
+    <div class="observatory-section">
+      <div class="workspace-section-heading">Active Swarms</div>
+      <ul id="swarm-list" aria-label="Active swarms"></ul>
+    </div>
+
   </div><!-- /#dm-workshop -->
 
   <script src="shared/helpers.js"></script>
@@ -349,8 +360,16 @@
           list.removeChild(list.firstChild);
         }
 
-        var count = (workshopState && workshopState.workspace_count) || 0;
-        var names = (workshopState && workshopState.workspace_names) || [];
+        // Use Observatory sort order (halted → running → complete → idle) when present
+        var wws = (workshopState && workshopState.workspaces_with_swarm) || [];
+        var count, names;
+        if (wws.length > 0) {
+          names = wws.map(function(w) { return w.name || w.workspace_id; });
+          count = names.length;
+        } else {
+          count = (workshopState && workshopState.workspace_count) || 0;
+          names = (workshopState && workshopState.workspace_names) || [];
+        }
 
         if (count === 0 && names.length === 0) {
           list.appendChild(makeShelfItem("No workspaces"));
@@ -366,6 +385,48 @@
             list.appendChild(makeShelfItem("Workspace " + (i + 1)));
           }
         }
+      }
+
+      // --- Render Observatory Panel (per-workspace swarm status) ---
+      function renderObservatory(workshopState) {
+        var list = document.getElementById("swarm-list");
+        if (!list) return;
+        while (list.firstChild) { list.removeChild(list.firstChild); }
+
+        var entries  = (workshopState && workshopState.workspaces_with_swarm) || [];
+        var active   = entries.filter(function(w) { return w.swarm_status !== "idle"; });
+
+        if (active.length === 0) {
+          var idle = document.createElement("li");
+          idle.style.cssText = "color:var(--text-muted);font-size:.8rem;font-style:italic;padding:.25rem 0;list-style:none;";
+          idle.textContent   = "No active swarms";
+          list.appendChild(idle);
+          return;
+        }
+
+        active.forEach(function(w) {
+          var li   = document.createElement("li");
+          li.style.cssText = "display:flex;gap:.5rem;align-items:baseline;padding:.2rem 0;font-size:.85rem;list-style:none;";
+
+          var dot  = document.createElement("span");
+          // Placeholder colors — Phase 2 UI Excellence swarm decides final palette
+          dot.style.color = w.swarm_status === "halted"   ? "#f59e0b"
+                          : w.swarm_status === "running"  ? "#60a5fa"
+                          :                                 "#34d399";
+          dot.textContent  = w.swarm_status === "halted"  ? "●"
+                           : w.swarm_status === "running" ? "◉" : "○";
+          dot.setAttribute("aria-hidden", "true");
+
+          var text = document.createElement("span");
+          var desc = w.name || w.workspace_id;
+          if (w.swarm_phase)       desc += " — " + w.swarm_phase;
+          if (w.swarm_agent_count) desc += " · " + w.swarm_agent_count + " agents";
+          text.textContent = desc;
+
+          li.appendChild(dot);
+          li.appendChild(text);
+          list.appendChild(li);
+        });
       }
 
       // --- Apply resolved CSS classes to overlay elements ---
@@ -394,6 +455,9 @@
           while (list.firstChild) { list.removeChild(list.firstChild); }
           list.appendChild(makeShelfItem("Snapshot mode"));
         }
+
+        // Observatory Panel — empty state in offline/snapshot mode
+        renderObservatory(null);
 
         applyOverlayClasses(WorkshopStates.resolveClasses(null));
       }
@@ -428,6 +492,9 @@
 
         // Workspace shelf volumes
         renderWorkspaces(workshopState);
+
+        // Observatory Panel swarm status
+        renderObservatory(workshopState);
       }
 
       // --- Reveal scene, hide loading indicator ---
