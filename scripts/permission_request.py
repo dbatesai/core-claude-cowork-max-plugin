@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-CORE Cowork Max plugin — permission-context augmentation hook (v1.2.1, DC-45).
+CORE Cowork Max plugin — permission-context augmentation hook (v1.2.2, DC-45 + S5 hotfix).
 
 Registered on TWO Claude Code events (see hooks/hooks.json):
 
@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -74,7 +75,77 @@ def _is_bash_tool(tool_name: str) -> bool:
 
 
 # --------------------------------------------------------------------------
-# PreToolUse pre-gate (M-Lath-1 elevation).
+# Bash path-sensitivity inspection (v1.2.2 S5 hotfix).
+# Probe A confirmed Bash does NOT fire PermissionRequest in Cowork, but may
+# still touch host paths the user hasn't connected. The gate fires when the
+# command string references either a system-sensitive prefix or any absolute
+# path outside the connected workspace folders.
+# --------------------------------------------------------------------------
+
+_SYSTEM_SENSITIVE_PREFIX_RE = re.compile(
+    r"^/(?:etc|private|var|usr|Library|System|opt|bin|sbin)(?:/|$)"
+)
+
+# Path token in a shell command: starts with `/`, optionally preceded by a
+# shell separator. Excludes double-leading-slash (URL host-form like `//foo`).
+_PATH_TOKEN_RE = re.compile(
+    r"(?:^|[\s'\"=`;|&><(){}])(/(?!/)[A-Za-z0-9_./~+\-]+)"
+)
+
+
+def _extract_paths_from_command(command: str) -> list[str]:
+    """Extract absolute path tokens from a shell command string."""
+    if not command:
+        return []
+    paths: list[str] = []
+    seen: set[str] = set()
+    for m in _PATH_TOKEN_RE.finditer(command):
+        p = m.group(1).rstrip(";,|&><`\"')]")
+        if p and p not in seen:
+            seen.add(p)
+            paths.append(p)
+    return paths
+
+
+def _connected_folders() -> list[str]:
+    """Read CLAUDE_CODE_WORKSPACE_HOST_PATHS (pipe-separated) into a list."""
+    raw = os.environ.get("CLAUDE_CODE_WORKSPACE_HOST_PATHS", "")
+    if not raw:
+        return []
+    return [p for p in raw.split("|") if p]
+
+
+def _path_outside_connected(path: str, connected: list[str]) -> bool:
+    """True if `path` is not under any connected folder."""
+    abs_path = os.path.abspath(os.path.expanduser(path))
+    for cf in connected:
+        cf_abs = os.path.abspath(os.path.expanduser(cf))
+        if abs_path == cf_abs or abs_path.startswith(cf_abs + os.sep):
+            return False
+    return True
+
+
+def _bash_path_sensitive(command: str) -> tuple[bool, list[str]]:
+    """
+    Return (is_sensitive, suspicious_paths). Sensitive when any path token in
+    the command is (a) under a system-sensitive prefix OR (b) outside every
+    connected folder.
+    """
+    paths = _extract_paths_from_command(command)
+    if not paths:
+        return False, []
+    connected = _connected_folders()
+    suspicious: list[str] = []
+    for p in paths:
+        if _SYSTEM_SENSITIVE_PREFIX_RE.match(p):
+            suspicious.append(p)
+        elif _path_outside_connected(p, connected):
+            suspicious.append(p)
+    return bool(suspicious), suspicious
+
+
+# --------------------------------------------------------------------------
+# PreToolUse pre-gate (M-Lath-1 elevation + v1.2.2 S5 Bash extension).
 # Without `permission_suggestions`, shape classification is the only signal
 # for deciding whether a tool call is plausibly permission-risky.
 # --------------------------------------------------------------------------
@@ -82,7 +153,9 @@ def _is_bash_tool(tool_name: str) -> bool:
 def _should_emit_pre_tool_use(tool_name: str, tool_input: dict) -> bool:
     """
     Decide whether PreToolUse should emit an advisory. Conservative: emit only
-    for tools that empirically surface a dialog or boundary-check in Cowork.
+    for tools that empirically surface a dialog or boundary-check in Cowork,
+    PLUS Bash commands that reference path tokens outside the connected
+    workspace folders (S5 hotfix v1.2.2).
 
     File tools: Cowork's file-tool boundary check may reject paths outside
     connected folders (probe-confirmed 2026-05-13); advisory helps the DM
@@ -91,13 +164,21 @@ def _should_emit_pre_tool_use(tool_name: str, tool_input: dict) -> bool:
     Cowork MCP: `request_cowork_directory` and other mcp__cowork__* calls may
     require approval; advisory helps the DM surface the dialog context.
 
-    Bash and other tools: probe-confirmed no dialog reaches the user in Cowork;
-    advisory would be noise. Suppress.
+    Bash: allow-listed trivial commands (no paths) stay suppressed; commands
+    referencing system-sensitive prefixes (/etc, /var, /Library, etc.) or
+    paths outside connected folders fire an advisory so the DM can surface
+    the implication before the action runs.
+
+    Other tools: suppress.
     """
     if _is_file_tool(tool_name):
         return True
     if _is_cowork_mcp_tool(tool_name):
         return True
+    if _is_bash_tool(tool_name):
+        command = tool_input.get("command", "") or ""
+        sensitive, _ = _bash_path_sensitive(command)
+        return sensitive
     return False
 
 
@@ -233,6 +314,20 @@ def _compose_pre_tool_use_advisory(tool_name: str, tool_input: dict) -> tuple[st
             "cowork-mcp-approval",
             f"The action needs approval for `{tool_name}`. The user will see a dialog.",
         )
+    if _is_bash_tool(tool_name):
+        command = tool_input.get("command", "") or ""
+        _, paths = _bash_path_sensitive(command)
+        if paths:
+            path_summary = ", ".join(f"`{p}`" for p in paths[:3])
+            if len(paths) > 3:
+                path_summary += f" (+{len(paths) - 3} more)"
+            return (
+                "bash-path-sensitive",
+                f"The action runs a shell command referencing {path_summary}. "
+                f"The path is either in a system-sensitive location or outside the "
+                f"connected workspace folders; the result may differ from what the "
+                f"user expects.",
+            )
     # Unreachable given the pre-gate, but safe default.
     return (
         "permission-required",

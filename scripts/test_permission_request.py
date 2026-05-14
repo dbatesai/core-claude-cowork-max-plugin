@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unit test for permission_request.py augmentation hook (v1.2.1, DC-45).
+Unit test for permission_request.py augmentation hook (v1.2.2, DC-45 + S5 hotfix).
 
 Covers two registered events:
   - PermissionRequest — audit-log only. Stdout markers retired in v1.2.1
@@ -143,6 +143,80 @@ PTU_BASH = {
     "tool_use_id": "toolu_test_004",
 }
 
+# v1.2.2 S5 hotfix fixtures — path-sensitive Bash.
+
+PTU_BASH_ETC_HOSTS = {
+    "session_id": "test-fixture",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": "cat /etc/hosts"},
+    "tool_use_id": "toolu_test_bash_etc",
+}
+
+PTU_BASH_VAR_LOG = {
+    "session_id": "test-fixture",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": "head -5 /var/log/system.log"},
+    "tool_use_id": "toolu_test_bash_var",
+}
+
+PTU_BASH_LIBRARY_PREFS = {
+    "session_id": "test-fixture",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": "ls /Library/Preferences"},
+    "tool_use_id": "toolu_test_bash_library",
+}
+
+PTU_BASH_USER_OUTSIDE_CONNECTED = {
+    "session_id": "test-fixture",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": "cat /Users/dbates/.zshrc"},
+    "tool_use_id": "toolu_test_bash_zshrc",
+}
+
+PTU_BASH_QUOTED_PATH = {
+    "session_id": "test-fixture",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": 'cat "/etc/hosts"'},
+    "tool_use_id": "toolu_test_bash_quoted",
+}
+
+PTU_BASH_NO_PATH = {
+    "session_id": "test-fixture",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": "echo hello world"},
+    "tool_use_id": "toolu_test_bash_nopath",
+}
+
+PTU_BASH_URL_NOT_PATH = {
+    "session_id": "test-fixture",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": "curl https://example.com/api/v1"},
+    "tool_use_id": "toolu_test_bash_url",
+}
+
+PTU_BASH_INSIDE_CONNECTED = {
+    "session_id": "test-fixture",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "Bash",
+    "tool_input": {"command": "cat /Users/dbates/Documents/Projects/CORE/PROJECT.md"},
+    "tool_use_id": "toolu_test_bash_inside",
+}
+
+PTU_MCP_WORKSPACE_BASH_PATH_SENSITIVE = {
+    "session_id": "test-fixture",
+    "hook_event_name": "PreToolUse",
+    "tool_name": "mcp__workspace__bash",
+    "tool_input": {"command": "head -3 /etc/hosts"},
+    "tool_use_id": "toolu_test_mcp_bash",
+}
+
 PTU_WEBFETCH = {
     "session_id": "test-fixture",
     "hook_event_name": "PreToolUse",
@@ -163,12 +237,24 @@ PTU_UNKNOWN_EVENT = {
 # Helpers
 # --------------------------------------------------------------------------
 
-def _run(payload: dict | None, *, is_cowork: bool = True, raw_stdin: str | None = None, data_dir: Path | None = None) -> subprocess.CompletedProcess:
+def _run(
+    payload: dict | None,
+    *,
+    is_cowork: bool = True,
+    raw_stdin: str | None = None,
+    data_dir: Path | None = None,
+    workspace_paths: str | None = None,
+) -> subprocess.CompletedProcess:
     """Invoke the hook script as a subprocess; capture stdout/stderr."""
     env = os.environ.copy()
     env["CLAUDE_CODE_IS_COWORK"] = "1" if is_cowork else "0"
     if data_dir:
         env["CORE_DATA_DIR"] = str(data_dir)
+    if workspace_paths is not None:
+        env["CLAUDE_CODE_WORKSPACE_HOST_PATHS"] = workspace_paths
+    else:
+        # Default: no connected folders so external-path tests trigger reliably.
+        env.pop("CLAUDE_CODE_WORKSPACE_HOST_PATHS", None)
     if raw_stdin is None:
         stdin_text = json.dumps(payload) if payload is not None else ""
     else:
@@ -325,11 +411,139 @@ def test_ptu_cowork_mcp_emits_advisory_json() -> None:
 
 
 def test_ptu_bash_suppressed() -> None:
-    """PreToolUse Bash → pre-gate suppresses (Cowork doesn't dialog Bash per probe)."""
+    """PreToolUse Bash with no path tokens → pre-gate suppresses."""
     r = _run(PTU_BASH)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "", f"ptu-bash: expected empty stdout (suppressed), got {r.stdout!r}"
     print("  PASS  test_ptu_bash_suppressed")
+
+
+# --------------------------------------------------------------------------
+# v1.2.2 S5 hotfix tests — Bash path-sensitivity gate.
+# --------------------------------------------------------------------------
+
+def test_ptu_bash_etc_hosts_fires_advisory() -> None:
+    """Bash referencing /etc/hosts → bash-path-sensitive advisory."""
+    r = _run(PTU_BASH_ETC_HOSTS)
+    assert r.returncode == 0, r.stderr
+    obj = _parse_hook_output(r.stdout, "ptu-bash-etc-hosts")
+    ctx = obj["hookSpecificOutput"]["additionalContext"]
+    _assert_in("tool: Bash", ctx, "ptu-bash-etc-hosts: tool name")
+    _assert_in("bash-path-sensitive", ctx, "ptu-bash-etc-hosts: reason slug")
+    _assert_in("/etc/hosts", ctx, "ptu-bash-etc-hosts: path in advisory")
+    print("  PASS  test_ptu_bash_etc_hosts_fires_advisory")
+
+
+def test_ptu_bash_var_log_fires_advisory() -> None:
+    """Bash referencing /var/log/* → bash-path-sensitive advisory."""
+    r = _run(PTU_BASH_VAR_LOG)
+    assert r.returncode == 0, r.stderr
+    obj = _parse_hook_output(r.stdout, "ptu-bash-var-log")
+    ctx = obj["hookSpecificOutput"]["additionalContext"]
+    _assert_in("bash-path-sensitive", ctx, "ptu-bash-var-log: reason slug")
+    _assert_in("/var/log/system.log", ctx, "ptu-bash-var-log: path in advisory")
+    print("  PASS  test_ptu_bash_var_log_fires_advisory")
+
+
+def test_ptu_bash_library_prefs_fires_advisory() -> None:
+    """Bash referencing /Library/Preferences → bash-path-sensitive advisory."""
+    r = _run(PTU_BASH_LIBRARY_PREFS)
+    assert r.returncode == 0, r.stderr
+    obj = _parse_hook_output(r.stdout, "ptu-bash-library")
+    ctx = obj["hookSpecificOutput"]["additionalContext"]
+    _assert_in("bash-path-sensitive", ctx, "ptu-bash-library: reason slug")
+    _assert_in("/Library/Preferences", ctx, "ptu-bash-library: path in advisory")
+    print("  PASS  test_ptu_bash_library_prefs_fires_advisory")
+
+
+def test_ptu_bash_quoted_path_fires_advisory() -> None:
+    """Bash with double-quoted /etc/hosts → still fires advisory."""
+    r = _run(PTU_BASH_QUOTED_PATH)
+    assert r.returncode == 0, r.stderr
+    obj = _parse_hook_output(r.stdout, "ptu-bash-quoted")
+    ctx = obj["hookSpecificOutput"]["additionalContext"]
+    _assert_in("bash-path-sensitive", ctx, "ptu-bash-quoted: reason slug")
+    _assert_in("/etc/hosts", ctx, "ptu-bash-quoted: quoted path extracted")
+    print("  PASS  test_ptu_bash_quoted_path_fires_advisory")
+
+
+def test_ptu_bash_outside_connected_fires_advisory() -> None:
+    """Bash referencing /Users/<other>/file with no connected folders → fires."""
+    r = _run(PTU_BASH_USER_OUTSIDE_CONNECTED)
+    assert r.returncode == 0, r.stderr
+    obj = _parse_hook_output(r.stdout, "ptu-bash-outside")
+    ctx = obj["hookSpecificOutput"]["additionalContext"]
+    _assert_in("bash-path-sensitive", ctx, "ptu-bash-outside: reason slug")
+    _assert_in(".zshrc", ctx, "ptu-bash-outside: path in advisory")
+    print("  PASS  test_ptu_bash_outside_connected_fires_advisory")
+
+
+def test_ptu_bash_inside_connected_suppressed() -> None:
+    """Bash referencing a path INSIDE a connected folder → suppressed."""
+    r = _run(
+        PTU_BASH_INSIDE_CONNECTED,
+        workspace_paths="/Users/dbates/Documents/Projects/CORE",
+    )
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "", (
+        f"ptu-bash-inside: expected empty stdout when path is inside connected folder, "
+        f"got {r.stdout!r}"
+    )
+    print("  PASS  test_ptu_bash_inside_connected_suppressed")
+
+
+def test_ptu_bash_no_path_still_suppressed() -> None:
+    """Bash with no path tokens (echo hello) → suppressed."""
+    r = _run(PTU_BASH_NO_PATH)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "", (
+        f"ptu-bash-no-path: expected empty stdout for path-free command, got {r.stdout!r}"
+    )
+    print("  PASS  test_ptu_bash_no_path_still_suppressed")
+
+
+def test_ptu_bash_url_not_treated_as_path() -> None:
+    """Bash with a URL (https://...) → URL must NOT match as a host path."""
+    r = _run(PTU_BASH_URL_NOT_PATH)
+    assert r.returncode == 0, r.stderr
+    assert r.stdout.strip() == "", (
+        f"ptu-bash-url: expected empty stdout — URL should not match host-path pattern, "
+        f"got {r.stdout!r}"
+    )
+    print("  PASS  test_ptu_bash_url_not_treated_as_path")
+
+
+def test_ptu_mcp_workspace_bash_path_sensitive_fires() -> None:
+    """Cowork's namespaced mcp__workspace__bash → same path-sensitivity gate applies."""
+    r = _run(PTU_MCP_WORKSPACE_BASH_PATH_SENSITIVE)
+    assert r.returncode == 0, r.stderr
+    obj = _parse_hook_output(r.stdout, "ptu-mcp-bash")
+    ctx = obj["hookSpecificOutput"]["additionalContext"]
+    _assert_in("bash-path-sensitive", ctx, "ptu-mcp-bash: reason slug")
+    _assert_in("/etc/hosts", ctx, "ptu-mcp-bash: path in advisory")
+    print("  PASS  test_ptu_mcp_workspace_bash_path_sensitive_fires")
+
+
+def test_ptu_bash_path_sensitive_advisory_observational_tense() -> None:
+    """M-Pet-3 still holds for the new bash-path-sensitive branch."""
+    forbidden_phrases = ["you should", "we recommend you", "it's safe to", "you can trust"]
+    for fixture in (
+        PTU_BASH_ETC_HOSTS,
+        PTU_BASH_VAR_LOG,
+        PTU_BASH_QUOTED_PATH,
+        PTU_BASH_USER_OUTSIDE_CONNECTED,
+    ):
+        r = _run(fixture)
+        if not r.stdout.strip():
+            continue
+        obj = _parse_hook_output(r.stdout, "bash-tense-check")
+        ctx = obj.get("hookSpecificOutput", {}).get("additionalContext", "").lower()
+        for phrase in forbidden_phrases:
+            if phrase in ctx:
+                print(f"FAIL: bash-m-pet-3: prescriptive phrase {phrase!r} in advisory.")
+                print(f"  advisory: {ctx!r}")
+                sys.exit(1)
+    print("  PASS  test_ptu_bash_path_sensitive_advisory_observational_tense")
 
 
 def test_ptu_unknown_tool_suppressed() -> None:
@@ -467,6 +681,17 @@ TESTS = [
     test_ptu_bash_suppressed,
     test_ptu_unknown_tool_suppressed,
     test_ptu_does_not_write_audit_log,
+    # v1.2.2 S5 hotfix — Bash path-sensitivity gate
+    test_ptu_bash_etc_hosts_fires_advisory,
+    test_ptu_bash_var_log_fires_advisory,
+    test_ptu_bash_library_prefs_fires_advisory,
+    test_ptu_bash_quoted_path_fires_advisory,
+    test_ptu_bash_outside_connected_fires_advisory,
+    test_ptu_bash_inside_connected_suppressed,
+    test_ptu_bash_no_path_still_suppressed,
+    test_ptu_bash_url_not_treated_as_path,
+    test_ptu_mcp_workspace_bash_path_sensitive_fires,
+    test_ptu_bash_path_sensitive_advisory_observational_tense,
     # Defensive
     test_missing_tool_name_is_silent,
     test_not_cowork_is_silent_pr,
@@ -481,7 +706,7 @@ TESTS = [
 
 
 def main() -> int:
-    print(f"Running {len(TESTS)} tests for permission_request.py (v1.2.1)...\n")
+    print(f"Running {len(TESTS)} tests for permission_request.py (v1.2.2)...\n")
     for t in TESTS:
         t()
     print(f"\nAll {len(TESTS)} tests passed.")

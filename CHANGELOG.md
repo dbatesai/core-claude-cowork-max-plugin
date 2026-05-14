@@ -11,6 +11,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.2] — 2026-05-14
+
+Hotfix for the S5 finding from the v1.2.1 Cowork acceptance run (2026-05-14): the PreToolUse suppression gate did not fire for path-sensitive Bash commands. `Bash cat /etc/hosts` ran with no advisory in DM context. v1.2.2 closes the gap by inspecting `tool_input.command` for path tokens and firing a `bash-path-sensitive` advisory when any token is in a system-sensitive location (`/etc`, `/private`, `/var`, `/usr`, `/Library`, `/System`, `/opt`, `/bin`, `/sbin`) or outside every connected workspace folder.
+
+### Added
+
+- **`_extract_paths_from_command`** — tokenizes a shell command string and returns absolute path tokens. Handles whitespace, quotes, common shell operators (`;|&><`), and skips URL host-form (`//example.com`).
+- **`_path_outside_connected`** — true if a given absolute path is not under any folder listed in `CLAUDE_CODE_WORKSPACE_HOST_PATHS` (the pipe-separated env var Cowork exposes per v114 probe §1).
+- **`_bash_path_sensitive`** — returns `(is_sensitive, suspicious_paths)`. Sensitive when any path token in the command matches `_SYSTEM_SENSITIVE_PREFIX_RE` or is outside every connected folder.
+- **`bash-path-sensitive` advisory branch** in `_compose_pre_tool_use_advisory` — names up to three suspicious paths in the advisory text; observational tense preserved per M-Pet-3.
+
+### Changed
+
+- **`_should_emit_pre_tool_use`** — Bash branch added. Allow-listed trivial commands (no paths) stay suppressed; commands referencing system-sensitive prefixes or paths outside connected folders fire an advisory. File-tool and `mcp__cowork__*` branches unchanged.
+- **`scripts/test_permission_request.py`** — 10 new tests covering: `/etc/hosts` fires, `/var/log/*` fires, `/Library/Preferences` fires, double-quoted `/etc/hosts` fires, `/Users/<other>/file` fires when no connected folders, path-inside-connected suppresses with workspace env var set, no-path command (`echo hello`) suppresses, URL (`https://example.com`) does not match as host path, `mcp__workspace__bash` namespace honored, observational-tense discipline still holds. Total test count: **29** (19 from v1.2.1 + 10 new).
+- **`mcp-server-node/server.mjs`** — `SERVER_VERSION` bumped to `1.2.2`.
+- **`.claude-plugin/plugin.json`** — `version` bumped to `1.2.2`.
+
+### Did not change
+
+- DC-45 (e2)-only branch decision. The PreToolUse + `additionalContext` delivery mechanism confirmed working in the v1.2.1 Cowork acceptance run (8 explicit advisories observed); no change to that mechanism in v1.2.2.
+- `PermissionRequest` hook behavior. Audit log writes unchanged. `permission_suggestions` capture unchanged.
+- Pay-to-play discipline. `permissionDecision: "ask"` only; no auto-approve / deny / modify.
+
+### Known unknowns shipping with this release
+
+1. **S3 denial-path advisory surfacing under (e2)-only.** Unchanged from v1.2.1 — `PreToolUse` fires before the user decides; if denial occurs, DM discipline on error-envelope detection covers the gap.
+2. **Token-cost regression risk.** v1.2.2 widens the gate (Bash now fires when path-sensitive). Realistic session estimate: 5–10 path-sensitive Bash calls × ~130 tokens per advisory = 650–1,300 tokens added per session. Well under the 5,000-token FM5' cap, but the acceptance smoke test remeasures.
+3. **Path-extraction conservatism.** The path-token regex is narrow on purpose — false-negatives (path forms we don't catch) are acceptable; false-positives (URL fragments, regex literals, etc. mis-classified as paths) would be noise. Edge cases that may slip through include: paths with embedded whitespace (rare in shell pipelines), paths inside `awk`/`sed` script bodies, paths constructed from environment variables (`$HOME/...` → not yet expanded at hook fire time). All of these can be tightened in a future patch if observed in real usage.
+
+### Did not ship
+
+- **No environment-variable path expansion** in the command parser. `$HOME/.zshrc` or `$XDG_CONFIG_HOME/foo` won't trigger the gate today. If real-world usage shows the DM missing advisories on shell-variable paths, add expansion in a v1.2.3 patch.
+
+### BBLens blast radius
+
+Low. Same `permission_request.py` mirrors cleanly into `bblens-plugin` on the next sync. The path-sensitivity logic is harness-agnostic; works the same in Claude Code CLI and Cowork. BBLens-overlay distribution gets the fix on the next refresh window.
+
+---
+
 ## [1.2.1] — 2026-05-13
 
 F9 augmentation hook delivery-path fix per DC-45 verdict. Switches the
