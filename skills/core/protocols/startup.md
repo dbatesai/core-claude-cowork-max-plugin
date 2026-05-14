@@ -34,6 +34,57 @@ See `data-storage.md` §"Cowork capability-driven write routing" for the L1 → 
 
 ---
 
+## Phase 0.7: Backup Auto-Compaction Check
+
+(Added 2026-05-13 per DC-46 BM-DC46-3 — backup trigger for the three-layer compaction architecture. The primary trigger lives in `finalize/SKILL.md` Step 4.7; this phase is the failsafe in case last session's `/finalize` missed it.)
+
+**Purpose.** Detect size overflows on in-scope files BEFORE Phase 1 / Phase 3A tries to read them. If `PROJECT.md` or `IMPROVEMENT_LOG.md` is over-threshold, slice-read for classification and auto-MIGRATE per file-shape, so Phase 3A's "Read `PROJECT.md` in full" precondition holds.
+
+### Procedure
+
+For each in-scope file (`<project>/PROJECT.md`, `<project>/IMPROVEMENT_LOG.md`, plus any file matching the file-shape classifier in `data-storage.md`):
+
+1. **Compute estimated tokens:**
+   - `file_size_chars = wc -c <file>` (or `os.path.getsize` equivalent)
+   - `per_file_ratio` = lookup last persisted ratio from BM-DC46-7 reports keyed by file path, else `0.30` default
+   - `estimated_tokens = file_size_chars × per_file_ratio`
+   - `effective_cap = env(CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS) ?? 25000`
+   - `threshold = 0.8 × effective_cap`
+
+2. **If `estimated_tokens > threshold`:**
+   - Consult `data-storage.md §"File-shape classifier"` for the file's shape.
+   - For shapes marked **auto-MIGRATE**: slice-read the file with `Read` offset/limit to classify entries; identify the oldest entries whose removal brings the file under threshold; MIGRATE them to `<file>-ARCHIVE.md` (or `DECISIONS.md` for PROJECT.md §D&R); rewrite the primary file without those entries.
+   - For shapes marked **user-gated** (e.g., `~/.core/dm-profile.md`): stage the proposal; do NOT migrate silently; surface at Phase 6 readiness for explicit approval.
+   - Write a BM-DC46-7 effectiveness report (`~/.core/swarm-effectiveness/auto-compaction-<workspace-id>-<YYYY-MM-DD>.md`) with `trigger: proactive_startup`. See `finalize/SKILL.md` Step 4.7 for the required report fields.
+
+3. **Surface-as-blocked failsafe.** If `file_size_chars > 100K` (4× the default cap) OR slice-read returns errors during classification, do NOT attempt MIGRATE blindly:
+   - Note in Phase 6 readiness: *"Cannot auto-compact `<file>` (`file_size_chars` exceeds 4× cap or slice-read failed); manual re-compaction required at next `/finalize` Step 4.7."*
+   - DM proceeds without compaction; the user is informed; Phase 3A may slice-read `PROJECT.md` to extract `§State` for orientation, with the residual disclosed.
+
+### Visibility — show entries, not counts
+
+Path (a) visibility requirement: Phase 6 readiness renders the MIGRATE list as **entries**, not aggregate counts. Format:
+
+> **Auto-MIGRATE performed at startup (Phase 0.7):**
+> - `PROJECT.md §D&R` → `DECISIONS.md`: `DC-21: Architecture principles will be expressed as 12 numbered properties…`
+> - `PROJECT.md §D&R` → `DECISIONS.md`: `DC-20: README.md, ARCHITECTURE.md, INSTALL.md drop from publish-skill.sh rsync exclusion list.`
+> - `IMPROVEMENT_LOG.md` → `IMPROVEMENT_LOG-ARCHIVE.md`: `2026-04-12 — Initial backlog audit.`
+
+Counts alone hide what moved. Entries make the autonomous path honest.
+
+### Routing by `core_capability_level` (Phase 0.5)
+
+- **`"direct"`** — proceed inline; Write/Edit on `<project>/*` and `~/.core/swarm-effectiveness/` works directly.
+- **`"L1"`** — `<project>/*` writes go via Write/Edit (project folder is connected); `~/.core/swarm-effectiveness/auto-compaction-*.md` writes route through MCP per `data-storage.md` (currently no `mcp__core__write_swarm_effectiveness` tool — escalate visibly if the BM-DC46-7 report can't be written, but proceed with the MIGRATE on the project file).
+- **`"L2"` / `"L3"`** — `<project>/*` Write/Edit still works (project folder is connected per Cowork model); skip the BM-DC46-7 report write with a user-visible warning ("auto-compaction effectiveness report skipped — capability level cannot reach `~/.core/`") and proceed with the MIGRATE.
+
+### What this phase does NOT do
+
+- **Does not run Branch A (content-relevance PRUNE).** Content-relevance triggers fire only at `/finalize` Step 4.7 because they require user approval — Phase 0.7 fires before the user is in the loop on the agenda. If `§State` violates the present-tense rule at startup, surface it as a flag in Phase 6 readiness and let `/finalize` handle it next session.
+- **Does not read archives.** Per DC-42 archive-exclusion rule (Phase 3A), `PROJECT-ARCHIVE.md`, `IMPROVEMENT_LOG-ARCHIVE.md`, and `<file>-ARCHIVE.md` are not read at bootstrap. They are WRITE-only from this phase's perspective.
+
+---
+
 ## Phase 1: Load Global Identity
 
 1. Read `~/.core/dm-profile.md` in full. This is cross-project only — personality, user relationship patterns, portfolio observations.
@@ -168,9 +219,12 @@ Make workspace identity obvious. Present:
 3. Active risks from §Decisions & Risks (count and top priority by impact)
 4. Elapsed time signals that triggered escalation (from Phase 5)
 5. Session agenda — top §Moves priorities
-6. **Ready for task** — only after agenda topics are resolved or explicitly deferred
+6. **Auto-compaction performed at startup** (from Phase 0.7, if any) — entries (not counts) of what moved, per path (a) visibility rule. Skip this line if Phase 0.7 found no over-threshold files.
+7. **Ready for task** — only after agenda topics are resolved or explicitly deferred
 
 Narrate what you found: *"Picking up on [workspace]. Last session closed on [date]. `PROJECT.md` says we're at [state]. Top of §Moves is [X]. One stale risk flagged: [Y]. Ready."*
+
+If Phase 0.7 auto-MIGRATEd entries, append the entries (not aggregate counts) immediately after the agenda line — see Phase 0.7 §Visibility for the format.
 
 **What NOT to say:** Do not recite handoff content. Do not reference auto-memory as authoritative. Do not read-and-summarize session logs. The DM's report on project state comes from `PROJECT.md` — that is the user-controlled surface.
 

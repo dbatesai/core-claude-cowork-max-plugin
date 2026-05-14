@@ -14,7 +14,7 @@ import shutil
 import sys
 from pathlib import Path
 
-SKILLS = ("core", "orient", "finalize", "vibecheck")
+SKILLS = ("core", "vibecheck")
 EXCLUDE_NAMES = {".git", "node_modules", "__pycache__"}
 EXCLUDE_SUFFIXES = {".pyc"}
 

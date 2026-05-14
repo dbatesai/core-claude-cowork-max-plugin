@@ -66,6 +66,68 @@ Use these to determine which row an artifact belongs to before writing. If an ar
 
 ---
 
+## Auto-Compaction Strategy
+
+(Added 2026-05-13 per DC-46. Generalizes DC-42's content-relevance compaction with a size-driven autonomous MIGRATE path. Path (a) — autonomous-with-visibility — selected by user 2026-05-13.)
+
+### Three-layer compaction architecture (BM-DC46-3)
+
+Files that grow monotonically (synthesis, append-only logs) need a mechanism that prevents bootstrap from silently sliding into slice-read when files exceed the harness's Read tool cap. Three layers, defense-in-depth:
+
+| Layer | Where | When | Action |
+|---|---|---|---|
+| **Primary trigger** | `finalize/SKILL.md` Step 4.7 | session close | proactive size-check before next bootstrap; auto-MIGRATE or surface for user approval per file-shape |
+| **Backup trigger** | `startup.md` Phase 0.7 | session start | failsafe if primary missed last session; slice-read + classify + MIGRATE |
+| **Last-resort (reactive)** | DM Read-error rule (this section) | mid-session | surface error; DM proceeds without that file |
+
+**Reactive trigger as DM rule.** Match regex `/File content \(\d+ tokens\) exceeds maximum allowed tokens \(\d+\)/` on Read tool errors. When this regex fires:
+1. Surface the error to the user (don't bury).
+2. Note that primary and backup proactive layers failed for this file — the auto-compaction system has a gap.
+3. Propose manual re-compaction (`/finalize` Step 4.7 with the file path called out).
+4. Write a BM-DC46-7 effectiveness report with `trigger: reactive_error` so the dream cycle can investigate.
+
+Defense-in-depth; should rarely fire if proactive layers work.
+
+### Measurement primitive (BM-DC46-1, BM-DC46-2)
+
+- **Effective cap** (BM-DC46-2): `effective_cap = env(CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS) ?? 25000`. Anthropic's default Read tool cap; officially tunable via env var.
+- **Threshold**: `threshold = 0.8 × effective_cap`. With the default cap, threshold = 20K tokens.
+- **Per-file ratio** (BM-DC46-1): `estimated_tokens = wc -c <file> × per_file_ratio`. Default `per_file_ratio = 0.30`. **Measure per file** at first cap-overflow event: capture `error_token_count / file_char_count` from the Read tool's error envelope; persist to the BM-DC46-7 effectiveness report keyed by file path; use measured ratio thereafter. Empirical measurements so far:
+  - `PROJECT.md`: 0.337 (Glean 2026-05-13)
+  - Other files: unmeasured; populate after first compaction.
+
+The 0.30 default is intentionally conservative — real headroom at the 20K threshold under default ratio is ~1.3K tokens, not 5K. The per-file mechanism prevents the default from being wrong for non-PROJECT.md content with different char-per-token profiles.
+
+### File-shape classifier (BM-DC46-5)
+
+Each file type has a different compaction strategy. The classifier extends the 7-rule routing sheet's conceptual model to write-time growth behavior. Primary and Backup triggers consult this table to decide auto-MIGRATE vs. user-gated.
+
+| Shape | Examples | Auto-MIGRATE? | Strategy |
+|---|---|---|---|
+| **Synthesis (project)** | `<project>/PROJECT.md` | yes (auto) — §D&R only | MIGRATE oldest §D&R entries to `DECISIONS.md` sibling. §State + §Moves use content-relevance triggers (DC-42 / Branch A). |
+| **Synthesis (cross-project)** | `~/.core/dm-profile.md` | **user-gated** | Cross-project visibility — surface proposed entries; require explicit approval. Not silent (cross-project surface differs from project surface in user-control implications). |
+| **Append-only log (project)** | `<project>/IMPROVEMENT_LOG.md` | yes (auto) | Rotate oldest N entries to `IMPROVEMENT_LOG-ARCHIVE.md` (DC-42 count-based default N=10; size-driven uses N-to-fit-threshold). |
+| **Append-only log (cross-project)** | `~/.core/workspaces/<id>/swarm-narrative.md`, `~/.core/logs/permission-events.md`, `~/.core/vibes/vibe-log.md` | yes (auto) | Rotate oldest entries to `<file>-ARCHIVE.md`. Cross-project but log-shaped — entries are operational events, not synthesis facts; auto-rotate is safe. |
+| **Volatile staging** | `~/.core/index.json`, `<project>/inbox.md` | n/a | Designed to never grow large (index is a registry; inbox is drained on review). No compaction logic. If one of these ever triggers, the right fix is investigating WHY it grew, not adding a compaction rule. |
+
+### DELETE procedure (path (a))
+
+MIGRATE preserves entries in archive files (read-side singular per DC-19; single-WRITE; never read at bootstrap). DELETE is the user's explicit action — the user-control invariant treats DELETE as the channel that permanently removes a fact:
+
+1. User edits `<file>-ARCHIVE.md` (or `DECISIONS.md` for graduated §D&R) directly and removes the entry.
+2. User commits the change.
+3. Fact is now gone from the entire write surface. Auto-memory rebuilds from current synthesis on next bootstrap; the deleted fact does not reappear.
+
+**DM-assisted DELETE.** The user can ask "show me migrated entries from session X" → DM Bash-greps the archive and presents. Removal is still the user's edit + commit. The DM never auto-DELETEs from the archive.
+
+**Future enhancement** (not blocking, tracked in §Moves): a `/core delete-archived` subcommand under the sub-skill layout (DC-47) for ergonomic archive management.
+
+### BM-DC46-7 effectiveness reports
+
+Per the universal-self-improvement architectural invariant (`SKILL.md`), auto-compaction writes per-trigger effectiveness reports to `~/.core/swarm-effectiveness/auto-compaction-<workspace-id>-<YYYY-MM-DD>.md`. The dream cycle (Phase 3) scans these reports and fires the path-(a)→(b) re-decision trigger if cumulative MIGRATE exceeds 5 entries since last review. See `finalize/SKILL.md` Step 4.7 for the report's required fields.
+
+---
+
 ## Pre-Write Declaration (PWD)
 
 **Before every non-exempt Write/Edit/MultiEdit/NotebookEdit call**, emit one line in user-visible chat:
@@ -323,6 +385,7 @@ The DM writes several artifacts as the skill learns across sessions. All live un
 |---|---|---|---|
 | Swarm efficacy narrative | `~/.core/workspaces/<id>/swarm-narrative.md` | Workspace operational | Reflective log of agent effectiveness; appended after each swarm. Not project state. |
 | Swarm effectiveness report | `~/.core/swarm-effectiveness/<id>-<YYYY-MM-DD>.md` | Global | Structured post-swarm report: strategy, composition, failure-mode audit, process signals. Read before composing new swarms. |
+| Auto-compaction effectiveness report | `~/.core/swarm-effectiveness/auto-compaction-<workspace-id>-<YYYY-MM-DD>.md` | Global | BM-DC46-7. Per-trigger report: file path, trigger (proactive_finalize / proactive_startup / reactive_error), per-file ratio measurement, entries migrated with first-line + archive destination. Dream cycle Phase 3 scans these to surface tuning candidates and fire the path-(a)→(b) re-decision trigger. |
 | Dream cycle retrospective | `~/.core/dream-cycles/<YYYY-MM-DD>.md` | Global | Structured memory-curation pass: inventory, distillation, contradiction resolution, pattern synthesis, agent refresh. Read before the next dream cycle to avoid re-litigating closed decisions. |
 | Agent configurations | `~/.core/agents/<name>.md` | Global | Saved effective agent designs, reused in future swarms. |
 | Task-type configurations | `~/.core/task-configs/<type>.md` | Global | Effective swarm configurations indexed by task type. Consulted before composing a new swarm. |

@@ -11,6 +11,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.2.1] — 2026-05-13
+
+F9 augmentation hook delivery-path fix per DC-45 verdict. Switches the
+permission-context advisory delivery from `PermissionRequest` stdout (which
+Cowork does not inject into DM context) to `PreToolUse` with
+`hookSpecificOutput.additionalContext` (which Cowork does inject, empirically
+verified at SessionStart). The original `PermissionRequest` hook is retained
+for audit-log writes only — it remains the only event that carries
+`permission_suggestions`.
+
+Planning label for this work was "v1.1.4" throughout the swarm artifacts
+(briefing, synthesis, probe-findings). Released as v1.2.1 because v1.2.0
+shipped before this work landed; semver minor patch.
+
+### Breaking Changes
+
+- `PermissionRequest` hook no longer emits the `[[CORE-PERMISSION-CONTEXT-BEGIN]]` / `[[CORE-PERMISSION-CONTEXT-END]]` stdout block. The block was empirically never reaching DM context in Cowork (Cowork does not inject `PermissionRequest` stdout per Anthropic's documented schema — `hookSpecificOutput` for `PermissionRequest` does not include `additionalContext`). Plugins that consumed this output from another harness should switch to the `PreToolUse` advisory or read the audit log.
+
+### Added
+
+- **`PreToolUse` hook registration** — `permission_request.py` is now also registered for `PreToolUse`. The script branches on `hook_event_name` and emits `hookSpecificOutput.additionalContext` with a `[CORE advisory]` block on the `PreToolUse` path. `permissionDecision` is always `"ask"` (the documented "show the dialog as normal" pattern); the hook never auto-approves, denies, or modifies input. Pay-to-play preserved per the documented schema rather than implicit-by-omission.
+
+- **Shape-based pre-gate** — `PreToolUse` payloads do NOT carry `permission_suggestions` (verified 12/12 fires in v114 probe). The script suppresses advisory emission for tools that empirically don't surface a dialog in Cowork (Bash, WebFetch, etc.) and emits only for file tools and `mcp__cowork__*` calls. This is the M-Lath-1 elevation of the tool-family classification (file/cowork-mcp) from post-classification fallback to pre-emission gate.
+
+- **`_compose_pre_tool_use_advisory`** — composes advisory text from `tool_input` shape alone, without `permission_suggestions`. Observational tense (M-Pet-3): no second-person prescriptive constructions in the advisory text. Test `test_pretooluse_advisory_observational_tense` greps for forbidden phrases.
+
+### Changed
+
+- **`hooks/hooks.json`** — adds `PreToolUse` registration. `PermissionRequest` registration retained.
+- **`scripts/permission_request.py`** — branches on `hook_event_name`; PermissionRequest path writes audit log only (stdout markers retired); PreToolUse path emits JSON additionalContext if the pre-gate fires.
+- **`scripts/test_permission_request.py`** — 19 tests covering both event paths. Migrated 5 marker-asserting tests to audit-log assertions per M-Lath-2 hard rewrite. Added 6 PreToolUse advisory + suppression tests + 2 discipline tests (pay-to-play, observational-tense).
+
+### Known Unknowns Shipped With This Release
+
+Per `feedback_probes_bound_not_close.md`:
+
+1. **S3 denial-path advisory surfacing under (e2)-only** — `PreToolUse` fires before the user decides; if the user denies the dialog, the advisory landed in DM context before the error, but there is no post-decision delivery surface. DM discipline on error-envelope detection covers the gap (per M-Pet-1).
+2. **Token-cost regression risk if shape gate proves too coarse** — acceptance smoke test (token-cost session measurement) is the instrument; tighten the gate or revisit if `>5,000 tokens/session` of advisories appears in real usage.
+3. **`additionalContext` truncation in Cowork's rendering** — not documented; advisories are kept terse (~200–400 chars typical) to stay under any cap.
+
+### Did Not Ship (DC-45 verdict)
+
+- **No `monitors/monitors.json` (e1) backstop.** Probe B 2026-05-13 confirmed Cowork ignores `monitors/monitors.json` — `monitor-stdout.log` was never created after a host-shell append. Plugin monitors are documented by Anthropic as CLI-only.
+
+### BBLens Blast Radius
+
+Low. Same `hooks.json` shape and same script logic mirrors cleanly into `bblens-plugin` on the next sync window. `additionalContext` is upstream Anthropic — no API drift specific to BBLens. `(e2)` is portable across Claude Code CLI and Cowork.
+
+---
+
 ## [1.2.0] — 2026-05-13
 
 Observatory feature Phase 1: CORE Dashboard rename + `update_swarm_status` MCP

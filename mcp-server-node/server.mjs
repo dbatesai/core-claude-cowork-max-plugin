@@ -11,7 +11,7 @@ import readline from "node:readline";
 
 const PROTOCOL_VERSION = "2024-11-05";
 const SERVER_NAME = "core";
-const SERVER_VERSION = "1.2.0";
+const SERVER_VERSION = "1.2.1";
 const CORE_DATA_DIR = process.env.CORE_DATA_DIR || join(homedir(), ".core");
 
 // --- JSON-RPC plumbing (stderr-only logging; stdout reserved for responses) ---

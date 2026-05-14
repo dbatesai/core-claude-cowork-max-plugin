@@ -1,32 +1,35 @@
 #!/usr/bin/env python3
 """
-CORE Cowork Max plugin — PermissionRequest augmentation hook (Option 5(a), v1.1.3).
+CORE Cowork Max plugin — permission-context augmentation hook (v1.2.1, DC-45).
 
-Fires when Claude Code's permission system surfaces a request (file tool, MCP tool,
-bash, etc.). Empirically verified to fire inside Cowork sessions for Read / Write /
-Edit / Glob / Grep / mcp__cowork__* dialogs per Q-F9-1 probe findings 2026-05-13
-(see outputs/2026-05-12/q-f9-1-findings.md in the CORE dev repo).
+Registered on TWO Claude Code events (see hooks/hooks.json):
 
-What this hook does:
-    1. Reads the stdin JSON payload Claude Code emits for PermissionRequest.
-    2. Gates on CLAUDE_CODE_IS_COWORK=1 — silent no-op on Claude Code CLI.
-    3. Examines tool_name + tool_input + permission_suggestions from the payload.
-    4. Emits a structured [[CORE-PERMISSION-CONTEXT-BEGIN/END]] block to stdout
-       (Cowork injects stdout into the DM's session context).
-    5. The DM (Keel) uses the advisory to craft a clear plain-language message
-       to the user about what just got blocked and what scope grant would unblock it.
-    6. Appends an audit entry to ~/.core/logs/permission-events.md for v1.1.3
-       acceptance testing.
+  - PreToolUse        — fires before every tool invocation; emits advisory text
+                        via `hookSpecificOutput.additionalContext` (the documented
+                        context-injection path). This is the advisory-delivery
+                        mechanism per DC-45 (e2). Shape-based suppression gate
+                        ensures only permission-risky tools (file tools, Cowork
+                        MCP) emit advisory; Bash and internal tools are silent.
+  - PermissionRequest — fires when Cowork's permission system surfaces a dialog
+                        (file tools, MCP). Writes to audit log only. Retained
+                        for `permission_suggestions` capture (PreToolUse payloads
+                        do NOT carry that field per v114-probe-findings.md 12/12).
 
-What this hook DOES NOT do (permission pay-to-play principle — David, 2026-05-12):
+What this hook does NOT do (permission pay-to-play principle — David, 2026-05-12):
     - Does NOT auto-approve any permission request.
-    - Does NOT modify the permission decision (no decision field in output).
+    - Does NOT modify the permission decision (`permissionDecision: "ask"` is
+      the documented "show the dialog as normal" pattern).
     - Does NOT block, deny, or retry the action.
     - Does NOT build alternate code paths to fake functionality on denial.
 
 The hook is passive augmentation only. If the user denies the dialog, the action
 fails normally; the DM's advisory tells the user clearly what won't work and
 re-asks. Buyer beware.
+
+DC-45 branch row 2 = (e2)-only — no (e1) backstop monitor (Cowork ignores
+monitors/monitors.json per Probe B 2026-05-13).
+M-Lath-1 elevation: tool-family classification (file/cowork-mcp) is the pre-gate
+since `permission_suggestions` is absent from PreToolUse payloads.
 
 Runs on macOS / Windows / Linux host. Invoked by hooks.json.
 """
@@ -48,6 +51,8 @@ import core_helpers as ch  # noqa: E402
 
 # --------------------------------------------------------------------------
 # Tool family classification (extends as new tools are added).
+# Lines lifted from post-classification fallback to PreToolUse pre-gate per
+# DC-45 M-Lath-1.
 # --------------------------------------------------------------------------
 
 FILE_READ_TOOLS = {"Read", "Glob", "Grep"}
@@ -69,10 +74,42 @@ def _is_bash_tool(tool_name: str) -> bool:
 
 
 # --------------------------------------------------------------------------
+# PreToolUse pre-gate (M-Lath-1 elevation).
+# Without `permission_suggestions`, shape classification is the only signal
+# for deciding whether a tool call is plausibly permission-risky.
+# --------------------------------------------------------------------------
+
+def _should_emit_pre_tool_use(tool_name: str, tool_input: dict) -> bool:
+    """
+    Decide whether PreToolUse should emit an advisory. Conservative: emit only
+    for tools that empirically surface a dialog or boundary-check in Cowork.
+
+    File tools: Cowork's file-tool boundary check may reject paths outside
+    connected folders (probe-confirmed 2026-05-13); advisory helps the DM
+    surface why the next tool result failed.
+
+    Cowork MCP: `request_cowork_directory` and other mcp__cowork__* calls may
+    require approval; advisory helps the DM surface the dialog context.
+
+    Bash and other tools: probe-confirmed no dialog reaches the user in Cowork;
+    advisory would be noise. Suppress.
+    """
+    if _is_file_tool(tool_name):
+        return True
+    if _is_cowork_mcp_tool(tool_name):
+        return True
+    return False
+
+
+# --------------------------------------------------------------------------
 # Advisory message composition.
 # Each function returns (reason_slug, advisory_sentence).
 # The advisory is plain-language — DM may surface it to the user verbatim,
 # but is expected to wrap it in conversational voice.
+#
+# Observational tense only — no second-person prescriptive constructions
+# ("you should", "we recommend you", "it's safe to", "you can trust") per
+# DC-45 M-Pet-3.
 # --------------------------------------------------------------------------
 
 def _advisory_for_add_directories(tool_name: str, directories: list) -> tuple[str, str]:
@@ -124,6 +161,8 @@ def _compose_advisory(tool_name: str, suggestions: list) -> tuple[str, str]:
     """
     Pick the most specific suggestion shape and compose an advisory.
     Priority: addDirectories > addRules > setMode > generic fallback.
+
+    Used by the PermissionRequest path (which carries `permission_suggestions`).
     """
     # Index suggestions by type.
     by_type: dict[str, list] = {}
@@ -168,39 +207,74 @@ def _compose_advisory(tool_name: str, suggestions: list) -> tuple[str, str]:
     )
 
 
+def _compose_pre_tool_use_advisory(tool_name: str, tool_input: dict) -> tuple[str, str]:
+    """
+    Compose an advisory from `tool_input` shape alone (no `permission_suggestions`).
+    Used by the PreToolUse path per M-Lath-1.
+    """
+    if _is_file_tool(tool_name):
+        target = tool_input.get("file_path") or tool_input.get("path") or tool_input.get("pattern") or "(no path)"
+        return (
+            "file-permission-required",
+            f"The action would use {tool_name} on `{target}`. "
+            f"If the path is outside the connected workspace folders, the file tool "
+            f"may reject the action or surface a permission dialog.",
+        )
+    if _is_cowork_mcp_tool(tool_name):
+        path_hint = tool_input.get("path") or tool_input.get("directory") or ""
+        if tool_name == "mcp__cowork__request_cowork_directory" and path_hint:
+            return (
+                "cowork-mcp-approval",
+                f"The action requests access to the directory `{path_hint}`. "
+                f"The user will see a dialog; if approved, future tool calls in the "
+                f"directory succeed in this session.",
+            )
+        return (
+            "cowork-mcp-approval",
+            f"The action needs approval for `{tool_name}`. The user will see a dialog.",
+        )
+    # Unreachable given the pre-gate, but safe default.
+    return (
+        "permission-required",
+        f"User approval may be needed for `{tool_name}`.",
+    )
+
+
 # --------------------------------------------------------------------------
-# Stdout emission — structured block matching the inject_file pattern.
+# PreToolUse output — JSON to stdout per documented schema.
 # --------------------------------------------------------------------------
 
-def _emit_context_block(tool_name: str, reason: str, tool_input: dict, advisory: str, suggestions: list) -> None:
-    print("[[CORE-PERMISSION-CONTEXT-BEGIN]]")
-    print(f"tool: {tool_name}")
-    print(f"reason: {reason}")
-    # tool_input may contain large content (e.g., Write content) — cap for context safety.
+def _emit_pre_tool_use_output(tool_name: str, reason: str, tool_input: dict, advisory: str) -> None:
+    """Emit hookSpecificOutput.additionalContext per Anthropic plugins-reference."""
+    # tool_input may contain large content; cap for context safety.
     try:
         tool_input_repr = json.dumps(tool_input, ensure_ascii=False)
     except (TypeError, ValueError):
         tool_input_repr = str(tool_input)
     if len(tool_input_repr) > 500:
         tool_input_repr = tool_input_repr[:497] + "..."
-    print(f"tool_input: {tool_input_repr}")
-    # Single-line advisory for clean DM ingestion.
-    print(f"advisory: {advisory}")
-    # Compact suggestion summary (machine-readable, for DM follow-up).
-    if suggestions:
-        try:
-            sugg_compact = json.dumps(
-                [{"type": s.get("type"), "destination": s.get("destination")} for s in suggestions],
-                ensure_ascii=False,
-            )
-        except (TypeError, ValueError):
-            sugg_compact = str(suggestions)
-        print(f"suggestion_types: {sugg_compact}")
-    print("[[CORE-PERMISSION-CONTEXT-END]]")
+
+    context = (
+        f"[CORE advisory]\n"
+        f"tool: {tool_name}\n"
+        f"reason: {reason}\n"
+        f"tool_input: {tool_input_repr}\n"
+        f"advisory: {advisory}"
+    )
+
+    output = {
+        "hookSpecificOutput": {
+            "hookEventName": "PreToolUse",
+            "permissionDecision": "ask",
+            "additionalContext": context,
+        }
+    }
+    print(json.dumps(output))
 
 
 # --------------------------------------------------------------------------
 # Audit log — append-only, plain markdown for diff-readability.
+# Written by the PermissionRequest path (carries `permission_suggestions`).
 # --------------------------------------------------------------------------
 
 def _audit_log(tool_name: str, reason: str, tool_input: dict, advisory: str) -> None:
@@ -223,7 +297,27 @@ def _audit_log(tool_name: str, reason: str, tool_input: dict, advisory: str) -> 
 
 
 # --------------------------------------------------------------------------
-# Main entry.
+# Event-specific handlers.
+# --------------------------------------------------------------------------
+
+def _handle_pre_tool_use(tool_name: str, tool_input: dict) -> int:
+    """PreToolUse path: shape-gated; emit hookSpecificOutput.additionalContext if risky."""
+    if not _should_emit_pre_tool_use(tool_name, tool_input):
+        return 0
+    reason, advisory = _compose_pre_tool_use_advisory(tool_name, tool_input)
+    _emit_pre_tool_use_output(tool_name, reason, tool_input, advisory)
+    return 0
+
+
+def _handle_permission_request(tool_name: str, tool_input: dict, suggestions: list) -> int:
+    """PermissionRequest path: audit-log only in v1.2.1. Stdout block retired."""
+    reason, advisory = _compose_advisory(tool_name, suggestions)
+    _audit_log(tool_name, reason, tool_input, advisory)
+    return 0
+
+
+# --------------------------------------------------------------------------
+# Main entry — branch on `hook_event_name`.
 # --------------------------------------------------------------------------
 
 def main() -> int:
@@ -245,17 +339,20 @@ def main() -> int:
 
     tool_name = payload.get("tool_name", "")
     tool_input = payload.get("tool_input", {}) or {}
-    suggestions = payload.get("permission_suggestions", []) or []
+    event = payload.get("hook_event_name", "")
 
     if not tool_name:
         # Nothing useful to say without tool_name.
         return 0
 
-    reason, advisory = _compose_advisory(tool_name, suggestions)
+    if event == "PreToolUse":
+        return _handle_pre_tool_use(tool_name, tool_input)
+    if event == "PermissionRequest":
+        suggestions = payload.get("permission_suggestions", []) or []
+        return _handle_permission_request(tool_name, tool_input, suggestions)
 
-    _emit_context_block(tool_name, reason, tool_input, advisory, suggestions)
-    _audit_log(tool_name, reason, tool_input, advisory)
-
+    # Unknown event — silent no-op. The hook is registered for two specific events;
+    # any other invocation is harness drift and not our problem to surface.
     return 0
 
 

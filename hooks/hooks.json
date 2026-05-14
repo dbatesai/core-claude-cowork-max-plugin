@@ -29,6 +29,16 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ${CLAUDE_PLUGIN_ROOT}/scripts/permission_request.py"
+          }
+        ]
+      }
     ]
   }
 }

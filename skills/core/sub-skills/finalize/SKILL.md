@@ -170,22 +170,28 @@ If the user accepts: invoke the dream cycle protocol at `~/.claude/skills/core/r
 
 ---
 
-## Step 4.7: Compaction Sweep — §State + §Moves + IMPROVEMENT_LOG
+## Step 4.7: Compaction Sweep — content-relevance + size-driven
 
-(Added 2026-05-13 per DC-42 verdict at `outputs/2026-05-11/project-md-bloat-review-synthesis.md`.)
+(Added 2026-05-13 per DC-42; extended same day per DC-46 to add size-driven autonomous MIGRATE alongside DC-42's content-relevance PRUNE. Primary trigger layer of the three-layer compaction architecture documented in `protocols/data-storage.md §"Auto-Compaction Strategy"`.)
 
-**Why this step exists:** PROJECT.md and IMPROVEMENT_LOG grow monotonically across sessions. By 30 sessions in, the files exceed harness read limits (~25K-token Read tool cap) and bootstrap silently slides from authoritative-read to slice-read. The user-control invariant has an unstated precondition — *the DM can read the whole synthesis file at orient* — that bloat empirically falsifies. This step enforces the existing 3–5-bullets §State cap, the present-tense entry-shape rule (DC-42), and an analogous count-based rotation for IMPROVEMENT_LOG.
+**Why this step exists:** PROJECT.md and IMPROVEMENT_LOG grow monotonically across sessions. By 30 sessions in, the files exceed harness read limits (default 25K-token Read cap) and bootstrap silently slides from authoritative-read to slice-read. The user-control invariant has an unstated precondition — *the DM can read the whole synthesis file at orient* — that bloat empirically falsifies. This step has two distinct branches: content-relevance compaction (DC-42, user-approved PRUNE because the info lives elsewhere) and size-driven compaction (DC-46, autonomous MIGRATE because entries are preserved in the archive).
 
-### Triggers (any one fires the sweep)
+### Triggers — two branches, fire independently
 
+**Branch A — Content-relevance (DC-42, user-approved PRUNE).** Any one fires Branch A:
 - §State has >5 bullets
 - Any §State bullet leads with a past-tense session verb ("shipped," "landed," "completed," "ran," "added," "verified," "documented," "fixed," "resolved")
 - §Moves has any `[x]` checked items still in the file
 - IMPROVEMENT_LOG.md has >15 entries (count-based; calibrate per project after first rotation)
 
-**Routing by `core_capability_level` (Step 0):** identical to Step 4.5 — `"direct"` proceeds inline; `"L1"`/`"L2"`/`"L3"` append `("Step 4.7: compaction sweep", "PROJECT.md edits require Write/Edit access to project folder", "queue for next CLI session")` to `blocked_steps` only if the project folder isn't connected. In Cowork L1 sessions where the project folder IS a connected Cowork folder (as in iter-5 and after), file-tool writes work; proceed inline.
+**Branch B — Size-driven (DC-46, autonomous MIGRATE for auto-MIGRATE files; user-gated for cross-project files).** Fires per file:
+- `file_size_chars × per_file_ratio > 0.8 × effective_cap`
+- Where `effective_cap = env(CLAUDE_CODE_FILE_READ_MAX_OUTPUT_TOKENS) ?? 25000`, `per_file_ratio` is the persisted measured ratio (default 0.30; see `data-storage.md §"Auto-Compaction Strategy"` for measurement primitive).
+- In-scope files: `PROJECT.md`, `IMPROVEMENT_LOG.md`, and any other file matching the file-shape classifier in `data-storage.md`.
 
-### Decision tree
+**Routing by `core_capability_level` (Step 0):** identical to Step 4.5 — `"direct"` proceeds inline; `"L1"`/`"L2"`/`"L3"` append `("Step 4.7: compaction sweep", "PROJECT.md edits require Write/Edit access to project folder", "queue for next CLI session")` to `blocked_steps` only if the project folder isn't connected. In Cowork L1 sessions where the project folder IS a connected Cowork folder, file-tool writes work; proceed inline.
+
+### Branch A: Content-relevance PRUNE (user-approved)
 
 ```
 For §State:
@@ -217,17 +223,67 @@ For IMPROVEMENT_LOG.md:
     apply approved rotation
 ```
 
-### Closing Declaration line
+### Branch B: Size-driven MIGRATE (autonomous per path (a), DC-46)
+
+```
+For each in-scope file:
+  consult data-storage.md §"File-shape classifier":
+    if shape is "Synthesis (cross-project)":
+      USER-GATED: surface proposed entries; require explicit approval
+    if shape is "Synthesis (project)" or "Append-only log":
+      AUTO-MIGRATE per path (a):
+        identify oldest entries whose removal brings the file under threshold
+        for PROJECT.md §D&R: migrate oldest dated decisions to DECISIONS.md
+        for PROJECT.md §State / §Moves: defer to Branch A (content-relevance)
+        for IMPROVEMENT_LOG.md: rotate oldest entries to IMPROVEMENT_LOG-ARCHIVE.md
+        for other append-only logs: rotate oldest entries to <file>-ARCHIVE.md
+        write entries to archive (single-WRITE, never read at bootstrap)
+        remove from primary file
+        write BM-DC46-7 effectiveness report (see below)
+        on first compaction of a previously-unmeasured file:
+          compute measured_ratio = error_token_count / file_char_count (if available)
+          persist to effectiveness report keyed by file path
+```
+
+**No info loss.** MIGRATE preserves entries in `<file>-ARCHIVE.md`. The user's explicit DELETE action is required to permanently remove a fact — see `data-storage.md §"DELETE procedure"`.
+
+### §D&R graduation check (BM-DC46-6)
+
+After Branch A and Branch B fire (if either did): if `PROJECT.md §Decisions & Risks` exceeds ~100 lines, trigger the graduation rule documented in `data-storage.md §"When to split PROJECT.md into siblings"`:
+- Move §D&R body to `<project>/DECISIONS.md` sibling at project root.
+- Replace section body with a two-line summary + link.
+- One-line grep stubs for older entries remain in `PROJECT.md` per DC-48 stub-every-archived-entry pattern.
+
+### BM-DC46-7 effectiveness report (load-bearing — do not drop)
+
+Per `~/.claude/skills/core/SKILL.md` universal-self-improvement architectural invariant. After any Branch B fire, write `~/.core/swarm-effectiveness/auto-compaction-<workspace-id>-<YYYY-MM-DD>.md` with:
+- File path that was compacted
+- Trigger: `proactive_finalize` (this step) or `proactive_startup` (Phase 0.7) or `reactive_error` (defense-in-depth)
+- `file_size_chars` before
+- `per_file_ratio` used (measured or default)
+- `effective_cap` and `threshold`
+- Entries migrated: list of `(entry_id_or_date, first_line, archive_destination)`
+- `file_size_chars` after
+- False positives observed (if any — e.g., entry migrated but user immediately re-promoted)
+
+The dream cycle (Phase 3) scans these reports across sessions, surfaces tuning candidates, and fires the path-(a)→(b) re-decision trigger if cumulative MIGRATE entries exceed 5 since last review surface.
+
+### Closing Declaration
 
 Append to the /finalize Closing Declaration:
 
-> **Compaction sweep:** §State pruned N, migrated M, kept K, rewrote R. §Moves pruned P, migrated Q. IMPROVEMENT_LOG rotated R entries to archive (new file size: X entries).
+> **Compaction sweep:**
+> **Branch A (PRUNE):** §State pruned N, migrated M, kept K, rewrote R. §Moves pruned P, migrated Q. IMPROVEMENT_LOG rotated R entries to archive.
+> **Branch B (MIGRATE):** [list each migrated entry as `<file>: <first-line of entry> → <archive destination>`; show entries, not counts, per path (a) visibility requirement.]
+> **§D&R graduation:** triggered / not triggered.
+> **Effectiveness report:** `~/.core/swarm-effectiveness/auto-compaction-<workspace-id>-<YYYY-MM-DD>.md` written / no Branch B fires this session.
 
 ### What this preserves
 
-- **User-control invariant.** Every prune/migrate/rotate requires explicit user approval. Default-PRUNE for past-tense-leading entries is *prescription*, not action — user sees the list and approves before any deletion. Per `~/.claude/skills/core/SKILL.md` Architectural Invariants, user-control invariant holds: deleted facts stay deleted; the DM cannot resurrect them via auto-archive read.
-- **Read-side singularity.** `PROJECT-ARCHIVE.md` and `IMPROVEMENT_LOG-ARCHIVE.md` are **single-WRITE / never-read-at-bootstrap**. They preserve history for the user's eyes only; the DM treats them as out of scope per startup.md Phase 3A archive-exclusion rule. Per DC-19, only the read-side singularity of PROJECT.md matters; write-side siblings are fine.
+- **User-control invariant.** Branch A (PRUNE) requires explicit user approval — default-PRUNE is *prescription*, not action; user sees the list and approves before any deletion. Branch B (MIGRATE) is autonomous but entries are preserved in archive — no info loss; only the user's explicit DELETE removes a fact permanently. Per `~/.claude/skills/core/SKILL.md` Architectural Invariants, deleted facts stay deleted; the DM cannot resurrect them via auto-archive read.
+- **Read-side singularity.** `PROJECT-ARCHIVE.md`, `IMPROVEMENT_LOG-ARCHIVE.md`, `DECISIONS.md`, and any `<file>-ARCHIVE.md` are **single-WRITE / never-read-at-bootstrap** (DECISIONS.md is read on explicit user request only). They preserve history for the user's eyes; the DM treats them as out of scope per `startup.md` Phase 3A archive-exclusion rule. Per DC-19, only the read-side singularity of `PROJECT.md` matters; write-side siblings are fine.
 - **Schema compliance.** The 3–5 bullet §State cap is documented in `data-storage.md` Project Folder schema; this step enforces what was already prescribed but unenforced for 30+ sessions.
+- **Visibility over silence.** Branch B is autonomous but entries (not counts) appear in the Closing Declaration. Path (a)'s honesty requirement is that the user can always see what was moved — silent ≠ hidden.
 
 ---
 
